@@ -1,0 +1,195 @@
+name: Build APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.9' }
+      - name: Android प्रोजेक्ट बनाओ और APK बिल्ड करो
+        run: |
+          set -e
+          mkdir -p app/src/main/assets app/src/main/res/values app/src/main/res/drawable app/src/main/java/com/apna/ai
+          test -f index.html || { echo "index.html repo की जड़ में नहीं मिली"; exit 1; }
+          cp index.html app/src/main/assets/index.html
+          cat > settings.gradle <<'APNA_EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "ApnaAI"
+          include ':app'
+          APNA_EOF
+          cat > build.gradle <<'APNA_EOF'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          APNA_EOF
+          cat > gradle.properties <<'APNA_EOF'
+          org.gradle.jvmargs=-Xmx2g
+          android.useAndroidX=true
+          APNA_EOF
+          cat > app/build.gradle <<'APNA_EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.apna.ai'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'com.apna.ai'
+                  minSdk 29
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+              }
+              buildTypes { release { minifyEnabled false } }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+          }
+          dependencies { implementation 'androidx.webkit:webkit:1.11.0' }
+          APNA_EOF
+          cat > app/src/main/AndroidManifest.xml <<'APNA_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:label="Apna AI"
+                  android:icon="@drawable/ic_launcher"
+                  android:allowBackup="false"
+                  android:usesCleartextTraffic="false"
+                  android:theme="@style/AppTheme">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden|uiMode|smallestScreenSize|screenLayout"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          APNA_EOF
+          cat > app/src/main/res/values/styles.xml <<'APNA_EOF'
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+                  <item name="android:windowBackground">@android:color/black</item>
+                  <item name="android:statusBarColor">#0B1020</item>
+                  <item name="android:navigationBarColor">#0B1020</item>
+              </style>
+          </resources>
+          APNA_EOF
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'APNA_EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp" android:viewportWidth="32" android:viewportHeight="32">
+              <path android:fillColor="#0B1020" android:pathData="M0,0h32v32h-32z"/>
+              <path android:fillColor="#FFB547" android:pathData="M16,6l2.6,7.4L26,16l-7.4,2.6L16,26l-2.6,-7.4L6,16l7.4,-2.6z"/>
+          </vector>
+          APNA_EOF
+          cat > app/src/main/java/com/apna/ai/MainActivity.java <<'APNA_EOF'
+          package com.apna.ai;
+
+          import android.app.Activity;
+          import android.content.ContentValues;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.provider.MediaStore;
+          import android.util.Base64;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          import androidx.webkit.WebViewAssetLoader;
+
+          import java.io.OutputStream;
+
+          /** Apna AI: assets/index.html को सुरक्षित https origin (appassets.androidplatform.net) पर WebView में चलाता है। */
+          public class MainActivity extends Activity {
+              private WebView web;
+
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
+                          .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                          .build();
+
+                  web = new WebView(this);
+                  setContentView(web);
+                  web.setBackgroundColor(0xFF0B1020);
+
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);          // localStorage + IndexedDB
+                  s.setAllowFileAccess(false);
+                  s.setAllowContentAccess(false);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+
+                  web.addJavascriptInterface(new Bridge(), "ApnaAndroid");
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                          return loader.shouldInterceptRequest(r.getUrl());
+                      }
+
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                          Uri u = r.getUrl();
+                          if ("appassets.androidplatform.net".equals(u.getHost())) return false;
+                          if ("https".equals(u.getScheme()) || "http".equals(u.getScheme())) {
+                              startActivity(new Intent(Intent.ACTION_VIEW, u)); // बाहरी लिंक ब्राउज़र में
+                          }
+                          return true;
+                      }
+                  });
+
+                  if (b == null) web.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+                  else web.restoreState(b);
+              }
+
+              /** वेब-ऐप से बुलाया जाता है: फ़ाइल को Downloads में सेव करता है। */
+              private class Bridge {
+                  @JavascriptInterface
+                  public boolean saveFile(String name, String mime, String base64) {
+                      try {
+                          String safe = name.replaceAll("[\\\\/:*?\"<>|]", "_");
+                          ContentValues v = new ContentValues();
+                          v.put(MediaStore.Downloads.DISPLAY_NAME, safe);
+                          v.put(MediaStore.Downloads.MIME_TYPE, mime == null || mime.isEmpty() ? "application/octet-stream" : mime);
+                          Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                          if (uri == null) return false;
+                          try (OutputStream o = getContentResolver().openOutputStream(uri)) {
+                              if (o == null) return false;
+                              o.write(Base64.decode(base64, Base64.DEFAULT));
+                          }
+                          return true;
+                      } catch (Exception e) {
+                          return false;
+                      }
+                  }
+              }
+
+              @Override
+              public void onBackPressed() {
+                  // पहले वेब-ऐप को मौका दो (शीट बंद / पिछली स्क्रीन); उसने नहीं संभाला तो ऐप बंद
+                  web.evaluateJavascript("(function(){try{return window.__appBack&&window.__appBack()===true}catch(e){return false}})()",
+                          value -> { if (!"true".equals(value)) finish(); });
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle out) {
+                  super.onSaveInstanceState(out);
+                  web.saveState(out);
+              }
+          }
+          APNA_EOF
+          gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ApnaAI-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
