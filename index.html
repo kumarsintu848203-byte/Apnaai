@@ -976,6 +976,19 @@ const TTS={
   stop(){try{speechSynthesis.cancel()}catch(e){}this.on=false}
 };
 function listen({lang,onResult,onEnd,onError}){
+  if(window.ApnaAndroid&&window.ApnaAndroid.startListen){
+    /* Android ऐप: फ़ोन की अपनी आवाज़-पहचान (WebView में webkitSpeechRecognition नहीं होता) */
+    let done=false;
+    const fin=()=>{if(done)return;done=true;window.__apnaSR=null;onEnd&&onEnd()};
+    window.__apnaSR=(k,t,f)=>{
+      if(done)return;
+      if(k==='r'){onResult&&onResult(t,!!f)}
+      else if(k==='x'){if(t!=='no-speech'&&t!=='aborted')onError&&onError(t)}
+      else if(k==='e'){fin()}
+    };
+    try{window.ApnaAndroid.startListen((lang||S.voice.lang)==='en'?'en-IN':'hi-IN')}catch(e){window.__apnaSR=null;onError&&onError('start');return null}
+    return {stop(){try{window.ApnaAndroid.stopListen()}catch(e){}},abort(){try{window.ApnaAndroid.stopListen()}catch(e){}}};
+  }
   const R=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!R){onError&&onError('unsupported');return null}
   let r;
