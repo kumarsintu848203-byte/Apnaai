@@ -52,6 +52,8 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
               <application
                   android:label="Apna AI"
                   android:icon="@drawable/ic_launcher"
@@ -92,10 +94,17 @@ jobs:
 
           import android.app.Activity;
           import android.content.ContentValues;
+          import android.Manifest;
           import android.content.Intent;
+          import android.content.pm.PackageManager;
           import android.net.Uri;
           import android.os.Bundle;
           import android.provider.MediaStore;
+          import android.speech.RecognitionListener;
+          import android.speech.RecognizerIntent;
+          import android.speech.SpeechRecognizer;
+          import org.json.JSONObject;
+          import java.util.ArrayList;
           import android.util.Base64;
           import android.webkit.JavascriptInterface;
           import android.webkit.WebResourceRequest;
@@ -152,8 +161,75 @@ jobs:
                   else web.restoreState(b);
               }
 
+              private SpeechRecognizer sr;
+              private String pendingLang;
+
+              private void js(String kind, String text, int fin) {
+                  final String code = "window.__apnaSR&&window.__apnaSR('" + kind + "'," + JSONObject.quote(text == null ? "" : text) + "," + fin + ")";
+                  runOnUiThread(() -> web.evaluateJavascript(code, null));
+              }
+
+              private void doListen(String lang) {
+                  if (!SpeechRecognizer.isRecognitionAvailable(this)) { js("x", "unsupported", 0); js("e", "", 0); return; }
+                  if (sr != null) { try { sr.destroy(); } catch (Exception e) {} }
+                  sr = SpeechRecognizer.createSpeechRecognizer(this);
+                  sr.setRecognitionListener(new RecognitionListener() {
+                      public void onReadyForSpeech(Bundle p) {}
+                      public void onBeginningOfSpeech() {}
+                      public void onRmsChanged(float v) {}
+                      public void onBufferReceived(byte[] b) {}
+                      public void onEndOfSpeech() {}
+                      public void onEvent(int t, Bundle b) {}
+                      private String first(Bundle b) {
+                          ArrayList<String> l = b == null ? null : b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                          return (l == null || l.isEmpty()) ? "" : l.get(0);
+                      }
+                      public void onPartialResults(Bundle b) { String t = first(b); if (!t.isEmpty()) js("r", t, 0); }
+                      public void onResults(Bundle b) { String t = first(b); if (!t.isEmpty()) js("r", t, 1); js("e", "", 0); }
+                      public void onError(int code) {
+                          String k = (code == SpeechRecognizer.ERROR_NO_MATCH || code == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) ? "no-speech"
+                                  : code == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ? "not-allowed"
+                                  : code == SpeechRecognizer.ERROR_CLIENT ? "aborted" : "error";
+                          js("x", k, 0); js("e", "", 0);
+                      }
+                  });
+                  Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                  i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                  i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang == null || lang.isEmpty() ? "hi-IN" : lang);
+                  i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+                  sr.startListening(i);
+              }
+
+              @Override
+              public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
+                  super.onRequestPermissionsResult(req, perms, res);
+                  if (req != 7) return;
+                  if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) doListen(pendingLang);
+                  else { js("x", "not-allowed", 0); js("e", "", 0); }
+              }
+
+              @Override
+              protected void onDestroy() {
+                  if (sr != null) { try { sr.destroy(); } catch (Exception e) {} }
+                  super.onDestroy();
+              }
+
               /** वेब-ऐप से बुलाया जाता है: फ़ाइल को Downloads में सेव करता है। */
               private class Bridge {
+                  @JavascriptInterface
+                  public void startListen(final String lang) {
+                      runOnUiThread(() -> {
+                          pendingLang = lang;
+                          if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) doListen(lang);
+                          else requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7);
+                      });
+                  }
+
+                  @JavascriptInterface
+                  public void stopListen() {
+                      runOnUiThread(() -> { if (sr != null) { try { sr.stopListening(); } catch (Exception e) {} } });
+                  }
+
                   @JavascriptInterface
                   public boolean saveFile(String name, String mime, String base64) {
                       try {
