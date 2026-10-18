@@ -34,6 +34,14 @@ jobs:
           cat > app/build.gradle <<'APNA_EOF'
           plugins { id 'com.android.application' }
           android {
+              signingConfigs {
+                  debug {
+                      storeFile file('debug.keystore')
+                      storePassword 'android'
+                      keyAlias 'androiddebugkey'
+                      keyPassword 'android'
+                  }
+              }
               namespace 'com.apna.ai'
               compileSdk 34
               defaultConfig {
@@ -264,6 +272,7 @@ jobs:
               }
           }
           APNA_EOF
+          echo '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' | base64 -d > app/debug.keystore
           gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
