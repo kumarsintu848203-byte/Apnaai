@@ -732,6 +732,7 @@ async function getSample(){
 }
 let _imgCaps;
 async function imgCaps(){
+  if(!window.claude){const p=PROV[S.provider];return(p&&p.custom&&p.vision)?{custom:true}:null}
   if(_imgCaps!==undefined)return _imgCaps;
   try{const s=await getSample();const l=s&&s.limits?await s.limits():null;_imgCaps=(l&&l.images)||null}catch(e){_imgCaps=null}
   return _imgCaps;
@@ -767,7 +768,31 @@ regProvider({
     return {text:r.text,truncated:!!r.truncated};
   }
 });
+/* फ़ोटो को छोटा करके data URL बनाओ (Worker की 1 MB सीमा के भीतर रहने के लिए) */
+async function visionDataUrl(blob,maxChars){
+  let bmp=null,url=null;
+  try{bmp=await createImageBitmap(blob)}catch(e){}
+  if(!bmp){
+    url=URL.createObjectURL(blob);
+    bmp=await new Promise((ok,no)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=()=>no({code:'image_rejected'});im.src=url});
+  }
+  try{
+    const W0=bmp.width||bmp.naturalWidth,H0=bmp.height||bmp.naturalHeight;
+    if(!W0||!H0)throw {code:'image_rejected'};
+    let side=1600,q=.82,out='';
+    for(let i=0;i<7;i++){
+      const k=Math.min(1,side/Math.max(W0,H0));
+      const cv=document.createElement('canvas');cv.width=Math.max(1,Math.round(W0*k));cv.height=Math.max(1,Math.round(H0*k));
+      const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);g.drawImage(bmp,0,0,cv.width,cv.height);
+      out=cv.toDataURL('image/jpeg',q);
+      if(out.length<=maxChars)return out;
+      side=Math.round(side*.75);q=Math.max(.5,q-.06);
+    }
+    throw {code:'image_rejected'};
+  }finally{if(url)URL.revokeObjectURL(url)}
+}
 function makeOpenAI(c){
+  const visionOk=c.vision===true||/\/(gemini|openai)\/v1\/?$/i.test(c.url||'');
   const extra=c.imgModel?{async img(o){
     const base=c.url.replace(/\/+$/,'');
     const size={'1:1':'1024x1024','4:5':'1024x1280','16:9':'1792x1024','9:16':'1024x1792'}[o.ratio]||'1024x1024';
@@ -779,13 +804,21 @@ function makeOpenAI(c){
     if(d&&d.b64_json)return 'data:image/png;base64,'+d.b64_json;if(d&&d.url)return d.url;
     throw {code:'bad',message:'इमेज सर्वर से तस्वीर नहीं मिली।'};
   }}:{};
-  return{id:c.id,label:c.name,desc:c.model+' · '+c.url+(c.imgModel?' · इमेज: '+c.imgModel:''),vision:false,custom:true,...extra,
+  return{id:c.id,label:c.name,desc:c.model+' · '+c.url+(c.imgModel?' · इमेज: '+c.imgModel:''),vision:visionOk,custom:true,...extra,
     async ask(o){
       const base=c.url.replace(/\/+$/,'');
       const turns=turnsOf(o);
       let sys=o.system||'';
       if(o.json)sys+='\n\nकेवल वैध JSON लौटाओ, उसके बाहर कोई टेक्स्ट नहीं।';
       const msgs=(sys?[{role:'system',content:sys}]:[]).concat(turns);
+      if(o.images&&o.images.length){
+        const imgs=o.images.slice(0,4);
+        const per=Math.floor(520000/imgs.length);
+        const urls=[];
+        for(const b of imgs){try{urls.push(await visionDataUrl(b,per))}catch(e){throw {code:'image_rejected',message:ERRS.image_rejected}}}
+        const last=msgs[msgs.length-1];
+        if(last&&last.role==='user')last.content=[{type:'text',text:String(last.content||'')||'इस फ़ोटो के बारे में बताओ।'}].concat(urls.map(u=>({type:'image_url',image_url:{url:u}})));
+      }
       let res;
       try{
         res=await fetch(base+'/chat/completions',{method:'POST',signal:o.signal,
