@@ -61,7 +61,7 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.RECORD_AUDIO" />
-              <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
+              <queries><intent><action android:name="android.speech.RecognitionService" /></intent><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>
               <application
                   android:label="Apna AI"
                   android:icon="@drawable/ic_launcher"
@@ -111,6 +111,9 @@ jobs:
           import android.speech.RecognitionListener;
           import android.speech.RecognizerIntent;
           import android.speech.SpeechRecognizer;
+          import android.speech.tts.TextToSpeech;
+          import android.speech.tts.UtteranceProgressListener;
+          import java.util.Locale;
           import org.json.JSONObject;
           import java.util.ArrayList;
           import android.util.Base64;
@@ -120,6 +123,8 @@ jobs:
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
 
           import androidx.webkit.WebViewAssetLoader;
 
@@ -165,12 +170,82 @@ jobs:
                       }
                   });
 
+                  web.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams params) {
+                          if (fileCb != null) { fileCb.onReceiveValue(null); fileCb = null; }
+                          fileCb = cb;
+                          try {
+                              startActivityForResult(params.createIntent(), 9);
+                          } catch (Exception e) {
+                              fileCb = null;
+                              return false;
+                          }
+                          return true;
+                      }
+                  });
+
                   if (b == null) web.loadUrl("https://appassets.androidplatform.net/assets/index.html");
                   else web.restoreState(b);
               }
 
+              private TextToSpeech tts;
+              private boolean ttsReady = false;
+              private String qText, qLang, qId;
+              private float qRate = 1f;
+
+              private void ttsJs(final String id, final String st) {
+                  final String code = "window.__apnaTTS&&window.__apnaTTS(" + JSONObject.quote(id) + ",'" + st + "')";
+                  runOnUiThread(() -> web.evaluateJavascript(code, null));
+              }
+
+              private void ttsRun(String text, String lang, float rate, String id) {
+                  try {
+                      String[] p = (lang == null || lang.isEmpty() ? "hi-IN" : lang).split("-");
+                      int r = tts.setLanguage(p.length > 1 ? new Locale(p[0], p[1]) : new Locale(p[0]));
+                      if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) { ttsJs(id, "nolang"); return; }
+                      tts.setSpeechRate(rate <= 0 ? 1f : rate);
+                      tts.speak(text, TextToSpeech.QUEUE_ADD, null, id);
+                  } catch (Exception e) { ttsJs(id, "err"); }
+              }
+
+              private void doSpeak(String text, String lang, float rate, String id) {
+                  if (tts == null) {
+                      qText = text; qLang = lang; qRate = rate; qId = id;
+                      tts = new TextToSpeech(this, status -> {
+                          if (status != TextToSpeech.SUCCESS) { ttsReady = false; if (qId != null) ttsJs(qId, "err"); return; }
+                          ttsReady = true;
+                          tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                              public void onStart(String u) {}
+                              public void onDone(String u) { ttsJs(u, "end"); }
+                              public void onError(String u) { ttsJs(u, "err"); }
+                          });
+                          if (qId != null) { String i2 = qId; qId = null; ttsRun(qText, qLang, qRate, i2); }
+                      });
+                      return;
+                  }
+                  if (!ttsReady) { ttsJs(id, "err"); return; }
+                  ttsRun(text, lang, rate, id);
+              }
+
               private SpeechRecognizer sr;
               private String pendingLang;
+
+              private ValueCallback<Uri[]> fileCb;
+
+              @Override
+              protected void onActivityResult(int req, int res, Intent data) {
+                  if (req == 9) {
+                      if (fileCb != null) {
+                          Uri[] r = null;
+                          try { r = WebChromeClient.FileChooserParams.parseResult(res, data); } catch (Exception e) {}
+                          fileCb.onReceiveValue(r);
+                          fileCb = null;
+                      }
+                      return;
+                  }
+                  super.onActivityResult(req, res, data);
+              }
 
               private void js(String kind, String text, int fin) {
                   final String code = "window.__apnaSR&&window.__apnaSR('" + kind + "'," + JSONObject.quote(text == null ? "" : text) + "," + fin + ")";
@@ -219,6 +294,7 @@ jobs:
               @Override
               protected void onDestroy() {
                   if (sr != null) { try { sr.destroy(); } catch (Exception e) {} }
+                  if (tts != null) { try { tts.stop(); tts.shutdown(); } catch (Exception e) {} }
                   super.onDestroy();
               }
 
@@ -231,6 +307,16 @@ jobs:
                           if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) doListen(lang);
                           else requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7);
                       });
+                  }
+
+                  @JavascriptInterface
+                  public void speak(final String text, final String lang, final float rate, final String id) {
+                      runOnUiThread(() -> doSpeak(text, lang, rate, id));
+                  }
+
+                  @JavascriptInterface
+                  public void stopSpeak() {
+                      runOnUiThread(() -> { if (tts != null && ttsReady) { try { tts.stop(); } catch (Exception e) {} } });
                   }
 
                   @JavascriptInterface
