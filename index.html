@@ -354,6 +354,19 @@ table.grid{border-collapse:collapse;min-width:100%}
 <script>window.APNA_CONFIG={proxyBase:"",geminiModel:"gemini-2.5-flash",openaiModel:"gpt-4o-mini"};</script>
 <script>
 (()=>{'use strict';
+/* Android ऐप: WebView में speechSynthesis नहीं होता, इसलिए फ़ोन की अपनी TextToSpeech से बनावटी speechSynthesis */
+if(window.ApnaAndroid&&window.ApnaAndroid.speak&&!('speechSynthesis' in window)){
+  const U={};let n=0;
+  window.SpeechSynthesisUtterance=function(t){this.text=String(t||'');this.lang='hi-IN';this.rate=1;this.voice=null;this.onend=null;this.onerror=null};
+  window.__apnaTTS=(id,st)=>{const u=U[id];if(!u)return;delete U[id];
+    if(st==='end'){try{u.onend&&u.onend()}catch(e){}}
+    else{if(st==='nolang'&&window.__apnaToast)window.__apnaToast('फ़ोन में इस भाषा की आवाज़ नहीं मिली। फ़ोन सेटिंग्स → भाषा → टेक्स्ट-टू-स्पीच देखें।');try{u.onerror&&u.onerror()}catch(e){}}};
+  window.speechSynthesis={
+    speak(u){const id='t'+(++n);U[id]=u;try{window.ApnaAndroid.speak(u.text,u.lang||'hi-IN',+u.rate||1,id)}catch(e){delete U[id];u.onerror&&u.onerror()}},
+    cancel(){for(const k in U)delete U[k];try{window.ApnaAndroid.stopSpeak()}catch(e){}},
+    getVoices(){return[]},speaking:false,pending:false,paused:false
+  };
+}
 /* ================= helpers ================= */
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
@@ -514,6 +527,7 @@ function toast(msg,ms=2800,action){
   if(action) $('.toast-a',t).onclick=()=>{t.classList.remove('on');action.f()};
   t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('on'),ms);
 }
+window.__apnaToast=m=>toast(m,4500);
 const sheetStack=[];
 function openSheet({title='',html='',cls='',onMount,onClose}={}){
   const back=mk(`<div class="sheet-back"><div class="sheet ${cls}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="sheet-h"><div class="sheet-t">${esc(title)}</div><button class="xbtn" data-close aria-label="बंद करें">${ic('close',20)}</button></div><div class="sheet-b">${html}</div></div></div>`);
@@ -1445,6 +1459,10 @@ async function sendMessage(text){
   if(busy){ctrl&&ctrl.abort();return}
   if(!text&&!pending.length)return;
   TTS.stop();
+  if(!pending.length&&text.length<400&&/(चित्र|तस्वीर|फ़ोटो|फोटो|इमेज|लोगो|पोस्टर|image|picture|photo|logo|poster)/i.test(text)&&/(बना|draw|make|create|generate)/i.test(text)&&!/(कैसे|how to|क्या है|what is)/i.test(text)){
+    toast('चित्र बनाने के लिए इमेज बनाना खुल रहा है…',2500);
+    go('t_image',{prompt:text,auto:true});return;
+  }
   const turn={id:uid(),role:'user',content:text||'(फ़ाइल देखकर बताइए)',ts:Date.now()};
   if(pending.length){turn.att=pending.map(a=>({name:a.name,kind:a.kind}));ATT[turn.id]=pending;pending=[]}
   cur.turns.push(turn);cur.updated=Date.now();
@@ -3064,6 +3082,7 @@ SCREENS.t_image={render(node,p){
       ghist:t=>{G.cur=G.hist[+t.dataset.i];draw()}
     }
   });
+  if(p.auto&&G.prompt)setTimeout(()=>{const b=$('#ggo',node);b&&b.click()},400);
 }};
 
 /* ================= टूल: फ़ोटो एडिटर ================= */
