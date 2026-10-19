@@ -1626,14 +1626,30 @@ let voiceOut=true;
 SCREENS.voice={from:'bottom',cls:'voice',render(node){
   node.innerHTML=`
   <div class="v-top"><button class="ib sq" data-back aria-label="वापस">${ic('back',24)}</button><button class="ib sq" data-go="s_voice" aria-label="और विकल्प">${ic('dotsh',22)}</button></div>
-  <div class="v-t"><div class="v-h" id="vh">बात शुरू करें</div><div class="v-s" id="vs">माइक दबाकर बोलिए या नीचे लिखिए</div></div>
+  <div class="v-t"><div class="v-h" id="vh">बात शुरू करें</div><div class="v-s" id="vs">माइक अपने-आप चालू रहता है — बस बोलिए, या नीचे लिखिए</div></div>
   <div class="v-orb"><div class="orb-o big"><div class="orb" id="vorb"></div></div></div>
   <div class="v-st" id="vst">AI तैयार है</div>
   <div class="v-btns"><button class="cb" data-act="vmic" id="vmic" aria-label="माइक">${ic('mic',26)}</button><button class="cb" data-act="vspk" id="vspk" aria-label="आवाज़">${ic('volume',26)}</button><button class="cb red" data-act="vend" aria-label="बंद करें">${ic('close',26)}</button></div>
   <div class="v-in"><button class="cb sm" data-act="vplus" aria-label="जोड़ें">${ic('plus',22)}</button><div class="v-box"><input id="vtxt" placeholder="कुछ भी पूछें" aria-label="कुछ भी पूछें" autocomplete="off"><button class="send sm" data-act="vsend" aria-label="भेजें">${ic('send',20)}</button></div></div>`;
   const $h=$('#vh',node),$s=$('#vs',node),$st=$('#vst',node),orb=$('#vorb',node);
   const state=(k,h,s,st)=>{orb.className='orb '+k;if(h)$h.textContent=h;if(s!=null)$s.textContent=s;$st.textContent=st};
-  let r=null,vrec=null;
+  let r=null,vrec=null,auto=true,empties=0,timer=null,alive=true;
+  const IDLE=()=>state('','बात शुरू करें','माइक बंद है — दबाकर फिर चालू करें','AI तैयार है');
+  const again=(ms=500)=>{clearTimeout(timer);if(!auto||!alive)return;timer=setTimeout(()=>{const t=topRec();if(auto&&alive&&!vrec&&!busy&&!TTS.on&&t&&t.node===node)startL()},ms)};
+  const startL=()=>{
+    if(vrec||!S.voice.stt)return;
+    TTS.stop();$('#vmic',node).classList.add('on');state('listen','मैं सुन रहा हूँ','बोलिए, मैं आपकी बात सुन रहा हूँ…','सुन रहा हूँ');
+    let last='',fin2=false;
+    vrec=listen({
+      onResult:(tx,fin)=>{last=tx;$s.textContent=tx;if(fin){fin2=true;empties=0;stopL();ask(tx)}},
+      onEnd:()=>{if(!vrec)return;stopL();
+        if(last&&!fin2){empties=0;ask(last);return}
+        empties++;
+        if(auto&&empties<5)again(400);else{auto=false;IDLE()}},
+      onError:er=>{stopL();auto=false;state('','टाइप करके पूछें',er==='unsupported'?'इस ब्राउज़र में माइक उपलब्ध नहीं है':MIC_MSG,'AI तैयार है');toast(er==='unsupported'?'इस ब्राउज़र में माइक उपलब्ध नहीं है।':MIC_MSG,4500)}
+    });
+    if(!vrec)$('#vmic',node).classList.remove('on');
+  };
   const stopL=()=>{if(vrec){try{vrec.stop()}catch(e){}vrec=null}$('#vmic',node).classList.remove('on')};
   const ask=async text=>{
     text=text.trim();if(!text||busy)return;
@@ -1643,27 +1659,27 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
     state('think','सोच रहा हूँ…','आपने कहा: '+text.slice(0,90),'जवाब बन रहा है');
     const reply=await runAssistant({voice:true});
     const last=cur.turns[cur.turns.length-1];
-    if(!reply||(last&&last.err)){state('','कुछ गड़बड़ हुई',last&&last.content||'फिर कोशिश करें','AI तैयार है');return}
+    if(!reply||(last&&last.err)){state('','कुछ गड़बड़ हुई',last&&last.content||'फिर कोशिश करें','AI तैयार है');again(2500);return}
     state('speak','मैं बोल रहा हूँ',reply.replace(/\s+/g,' ').slice(0,160),'सुनिए…');
-    if(voiceOut){if(!TTS.say(reply,{onend:()=>state('','बात जारी रखें','माइक दबाकर बोलिए या लिखिए','AI तैयार है')}))state('','जवाब तैयार है',reply.slice(0,160),'AI तैयार है')}
-    else state('','जवाब तैयार है',reply.replace(/\s+/g,' ').slice(0,160),'आवाज़ बंद है');
+    if(voiceOut){if(!TTS.say(reply,{onend:()=>{state('','बात जारी रखें','बोलिए, मैं सुन रहा हूँ','AI तैयार है');again(400)}}))state('','जवाब तैयार है',reply.slice(0,160),'AI तैयार है')}
+    else{state('','जवाब तैयार है',reply.replace(/\s+/g,' ').slice(0,160),'आवाज़ बंद है');again(1500)}
   };
   wire(node,{act:{
     vmic:t=>{
-      if(vrec){stopL();state('','बात शुरू करें','माइक दबाकर बोलिए या नीचे लिखिए','AI तैयार है');return}
       if(!S.voice.stt){toast('बोलकर लिखना बंद है। सेटिंग्स → आवाज़ में चालू करें।');return}
-      TTS.stop();t.classList.add('on');state('listen','मैं सुन रहा हूँ','बोलिए, मैं आपकी बात सुन रहा हूँ…','सुन रहा हूँ');
-      vrec=listen({onResult:(tx,fin)=>{$s.textContent=tx;if(fin){stopL();ask(tx)}},onEnd:()=>{if(vrec){stopL();state('','बात शुरू करें','माइक दबाकर बोलिए या नीचे लिखिए','AI तैयार है')}},onError:er=>{stopL();state('','टाइप करके पूछें',er==='unsupported'?'इस ब्राउज़र में माइक उपलब्ध नहीं है':MIC_MSG,'AI तैयार है');toast(er==='unsupported'?'इस ब्राउज़र में माइक उपलब्ध नहीं है।':MIC_MSG,4500)}});
-      if(!vrec)t.classList.remove('on');
+      if(auto){auto=false;clearTimeout(timer);stopL();IDLE();return}
+      auto=true;empties=0;startL();
     },
     vspk:t=>{voiceOut=!voiceOut;t.innerHTML=ic(voiceOut?'volume':'mute',26);t.classList.toggle('off',!voiceOut);if(!voiceOut)TTS.stop();toast(voiceOut?'AI की आवाज़ चालू':'AI की आवाज़ बंद')},
-    vend:()=>{TTS.stop();stopL();if(busy&&ctrl)ctrl.abort();back()},
+    vend:()=>{auto=false;alive=false;clearTimeout(timer);TTS.stop();stopL();if(busy&&ctrl)ctrl.abort();back()},
     vplus:()=>openPlus(),
     vsend:()=>{const i=$('#vtxt',node);const v=i.value;i.value='';ask(v)}
   }});
   $('#vtxt',node).addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();const i=e.target;const v=i.value;i.value='';ask(v)}});
   r=null;
-},onLeave(){TTS.stop()}};
+  node._vstop=()=>{auto=false;alive=false;clearTimeout(timer);stopL()};
+  setTimeout(()=>{if(alive&&auto)startL()},800);
+},onLeave(rec){TTS.stop();try{rec&&rec.node&&rec.node._vstop&&rec.node._vstop()}catch(e){}}};
 
 /* ================= सेटिंग्स: साझा हिस्से ================= */
 function screenPaint(node,title,body,right=''){
