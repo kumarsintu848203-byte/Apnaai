@@ -1254,6 +1254,27 @@ async function readFileAny(file){
   return{kind:'text',name,text:await file.text()};
 }
 function pickFiles({accept='',multiple=false,capture=''}={}){
+  /* Android ऐप: फ़ोन का अपना चुनने वाला (गैलरी/कैमरा/फ़ाइलें) और फ़ाइल सीधे ऐप तक — WebView की फ़ाइल-खिड़की पर निर्भर नहीं */
+  if(window.ApnaAndroid&&window.ApnaAndroid.pick){
+    return new Promise(res=>{
+      const kind=capture?'cam':(/^image\//.test(accept)?'img':'file');
+      const bufs={},jobs=[],files=[];
+      window.__apnaPick=m=>{
+        if(!m)return;
+        if(m.t==='c'){
+          const b=bufs[m.id]||(bufs[m.id]={parts:[],got:0,name:m.name,mime:m.mime});
+          b.parts[m.i]=m.d;b.got++;
+          if(b.got===m.n){
+            const nm=b.name,mt=b.mime,all=b.parts.join('');delete bufs[m.id];
+            jobs.push(fetch('data:'+mt+';base64,'+all).then(r=>r.blob()).then(bl=>{files.push(new File([bl],nm,{type:mt}))}).catch(()=>{}));
+          }
+        }else if(m.t==='done'){
+          Promise.all(jobs).then(()=>{window.__apnaPick=null;res(files)});
+        }
+      };
+      try{window.ApnaAndroid.pick(kind)}catch(e){window.__apnaPick=null;res([])}
+    });
+  }
   return new Promise(res=>{
     const i=document.createElement('input');i.type='file';i.accept=accept;i.multiple=multiple;if(capture)i.setAttribute('capture',capture);i.style.display='none';
     document.body.append(i);
