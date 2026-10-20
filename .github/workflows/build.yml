@@ -61,7 +61,7 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.RECORD_AUDIO" />
-              <queries><intent><action android:name="android.speech.RecognitionService" /></intent><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>
+              <queries><intent><action android:name="android.speech.RecognitionService" /></intent><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent><intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent></queries>
               <application
                   android:label="Apna AI"
                   android:icon="@drawable/ic_launcher"
@@ -175,6 +175,18 @@ jobs:
                       public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams params) {
                           if (fileCb != null) { fileCb.onReceiveValue(null); fileCb = null; }
                           fileCb = cb;
+                          if (params.isCaptureEnabled()) {
+                              try {
+                                  ContentValues cv = new ContentValues();
+                                  cv.put(MediaStore.Images.Media.DISPLAY_NAME, "apna_" + System.currentTimeMillis() + ".jpg");
+                                  cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                                  camUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+                                  Intent ci = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                                  ci.putExtra(MediaStore.EXTRA_OUTPUT, camUri);
+                                  startActivityForResult(ci, 9);
+                                  return true;
+                              } catch (Exception e) { camUri = null; }
+                          }
                           try {
                               startActivityForResult(params.createIntent(), 9);
                           } catch (Exception e) {
@@ -232,13 +244,20 @@ jobs:
               private String pendingLang;
 
               private ValueCallback<Uri[]> fileCb;
+              private Uri camUri;
 
               @Override
               protected void onActivityResult(int req, int res, Intent data) {
                   if (req == 9) {
                       if (fileCb != null) {
                           Uri[] r = null;
-                          try { r = WebChromeClient.FileChooserParams.parseResult(res, data); } catch (Exception e) {}
+                          if (camUri != null) {
+                              if (res == RESULT_OK) r = new Uri[]{camUri};
+                              else { try { getContentResolver().delete(camUri, null, null); } catch (Exception e) {} }
+                              camUri = null;
+                          } else {
+                              try { r = WebChromeClient.FileChooserParams.parseResult(res, data); } catch (Exception e) {}
+                          }
                           fileCb.onReceiveValue(r);
                           fileCb = null;
                       }
