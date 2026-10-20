@@ -272,7 +272,10 @@ jobs:
                       public void onError(int code) {
                           String k = (code == SpeechRecognizer.ERROR_NO_MATCH || code == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) ? "no-speech"
                                   : code == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ? "not-allowed"
-                                  : code == SpeechRecognizer.ERROR_CLIENT ? "aborted" : "error";
+                                  : code == SpeechRecognizer.ERROR_CLIENT ? "aborted"
+                                  : code == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ? "busy"
+                                  : (code == SpeechRecognizer.ERROR_NETWORK || code == SpeechRecognizer.ERROR_NETWORK_TIMEOUT || code == SpeechRecognizer.ERROR_SERVER) ? "network"
+                                  : code == SpeechRecognizer.ERROR_AUDIO ? "audio" : "error" + code;
                           js("x", k, 0); js("e", "", 0);
                       }
                   });
