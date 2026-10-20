@@ -834,10 +834,15 @@ function makeOpenAI(c){
         if(last&&last.role==='user')last.content=[{type:'text',text:String(last.content||'')||'इस फ़ोटो के बारे में बताओ।'}].concat(urls.map(u=>({type:'image_url',image_url:{url:u}})));
       }
       let res;
-      try{
-        res=await fetch(base+'/chat/completions',{method:'POST',signal:o.signal,
+      /* "तेज़" मोड: Gemini लाइन पर अपने-आप सबसे तेज़ मॉडल (Flash-Lite) और छोटा जवाब; वह न चले तो सामान्य मॉडल */
+      const quick=o.tier==='quick'&&!o.json;
+      const fastM=o.tier==='quick'?(c.fastModel||(/\/gemini\/v1\/?$/i.test(c.url||'')?'gemini-3.5-flash-lite':'')):'';
+      const call=m=>fetch(base+'/chat/completions',{method:'POST',signal:o.signal,
           headers:Object.assign({'Content-Type':'application/json'},c.key?{Authorization:'Bearer '+c.key}:{}),
-          body:JSON.stringify({model:c.model,stream:!o.json,messages:msgs})});
+          body:JSON.stringify(Object.assign({model:m,stream:!o.json,messages:msgs},quick?{max_tokens:1500}:{}))});
+      try{
+        res=await call(fastM&&fastM!==c.model?fastM:c.model);
+        if(!res.ok&&fastM&&fastM!==c.model&&(res.status===400||res.status===404))res=await call(c.model);
       }catch(e){
         if(e&&e.name==='AbortError')throw {code:'cancelled',message:'रोका गया'};
         throw {code:'network',message:'सर्वर से कनेक्शन नहीं हो सका। इंटरनेट, Base URL और Worker का ALLOWED_ORIGIN (इस साइट का पता) जाँचें।'};
