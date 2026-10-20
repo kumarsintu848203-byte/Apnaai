@@ -435,6 +435,7 @@ check:`<path d="M5 12.5l5 5L19 7"/>`,
 search:`<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>`,
 image:`<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.6"/><path d="M21 15l-5-5L5 21"/>`,
 video:`<rect x="2" y="6" width="14" height="12" rx="3"/><path d="M16 10l6-3v10l-6-3"/>`,
+camera:`<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13" r="3.5"/>`,
 clip:`<path d="M21 12.5l-8.5 8.5a5.5 5.5 0 01-8-8L13 4.5a3.7 3.7 0 015.3 5.3l-8.6 8.5a1.8 1.8 0 01-2.6-2.6L15 7.5"/>`,
 palette:`<path d="M12 3a9 9 0 100 18c1.4 0 2-1 1.6-2-.5-1.2.3-2.5 1.7-2.5H17a4 4 0 004-4C21 7 17 3 12 3z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7.5" r="1"/>`,
 gear:`<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>`,
@@ -1252,9 +1253,9 @@ async function readFileAny(file){
   }
   return{kind:'text',name,text:await file.text()};
 }
-function pickFiles({accept='',multiple=false}={}){
+function pickFiles({accept='',multiple=false,capture=''}={}){
   return new Promise(res=>{
-    const i=document.createElement('input');i.type='file';i.accept=accept;i.multiple=multiple;i.style.display='none';
+    const i=document.createElement('input');i.type='file';i.accept=accept;i.multiple=multiple;if(capture)i.setAttribute('capture',capture);i.style.display='none';
     document.body.append(i);
     i.onchange=()=>{const f=Array.from(i.files||[]);i.remove();res(f)};
     i.addEventListener('cancel',()=>{i.remove();res([])});
@@ -1535,8 +1536,19 @@ const FEATURES=[
   {id:'f_templates',i:'tmpl',t:'टेम्पलेट्स',d:'ईमेल, रिज़्यूमे और तैयार प्रारूप'}
 ];
 function openPlus(){
-  const sh=openSheet({title:'क्या जोड़ना है?',cls:'plus',html:`<div class="plist">${FEATURES.map(f=>item({i:f.i,t:f.t,d:f.d,go:f.id})).join('')}</div>`});
-  sh.body.addEventListener('click',e=>{const g=e.target.closest('[data-go]');if(!g)return;sh.close();go(g.dataset.go)});
+  const ATTS=[{i:'camera',t:'कैमरा से फ़ोटो',d:'अभी फ़ोटो खींचकर भेजें',v:'cam'},{i:'image',t:'गैलरी से फ़ोटो',d:'फ़ोन की फ़ोटो चुनें',v:'img'},{i:'clip',t:'फ़ाइल जोड़ें',d:'PDF, Word, Excel, टेक्स्ट आदि',v:'file'}];
+  const sh=openSheet({title:'क्या जोड़ना है?',cls:'plus',html:`<div class="plist">${ATTS.map(a=>item({i:a.i,t:a.t,d:a.d,act:'pick',v:a.v})).join('')}${FEATURES.map(f=>item({i:f.i,t:f.t,d:f.d,go:f.id})).join('')}</div>`});
+  sh.body.addEventListener('click',async e=>{
+    const k=e.target.closest('[data-act="pick"]');
+    if(k){
+      sh.close();
+      const v=k.dataset.v,ACC='.txt,.md,.csv,.tsv,.json,.html,.xml,.py,.js,.ts,.java,.kt,.c,.cpp,.pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.webp';
+      const f=await pickFiles(v==='cam'?{accept:'image/*',capture:'environment'}:v==='img'?{accept:'image/*',multiple:true}:{accept:ACC,multiple:true});
+      if(f.length){if(!homeEl())goHome();await addAtt(f)}
+      return;
+    }
+    const g=e.target.closest('[data-go]');if(!g)return;sh.close();go(g.dataset.go)
+  });
 }
 
 /* ================= साइड मेन्यू ================= */
