@@ -148,8 +148,8 @@ jobs:
                   WebSettings s = web.getSettings();
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);          // localStorage + IndexedDB
-                  s.setAllowFileAccess(false);
-                  s.setAllowContentAccess(false);
+                  s.setAllowFileAccess(true);      // फ़ाइल-चुनने वाले (गैलरी/कैमरा) के नतीजे पढ़ने के लिए
+                  s.setAllowContentAccess(true);
                   s.setMediaPlaybackRequiresUserGesture(false);
 
                   web.addJavascriptInterface(new Bridge(), "ApnaAndroid");
