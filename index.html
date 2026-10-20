@@ -1544,7 +1544,7 @@ function openPlus(){
       sh.close();
       const v=k.dataset.v,ACC='.txt,.md,.csv,.tsv,.json,.html,.xml,.py,.js,.ts,.java,.kt,.c,.cpp,.pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.webp';
       const f=await pickFiles(v==='cam'?{accept:'image/*',capture:'environment'}:v==='img'?{accept:'image/*',multiple:true}:{accept:ACC,multiple:true});
-      if(f.length){if(!homeEl())goHome();await addAtt(f)}
+      if(f.length){if(!homeEl())goHome();await addAtt(f)}else toast('कोई फ़ाइल नहीं मिली। फ़ोटो चुनकर Done दबाएँ।',2500);
       return;
     }
     const g=e.target.closest('[data-go]');if(!g)return;sh.close();go(g.dataset.go)
