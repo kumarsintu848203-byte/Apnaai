@@ -1048,7 +1048,8 @@ function listen({lang,onResult,onEnd,onError}){
   }catch(e){onError&&onError('start');return null}
   return r;
 }
-const MIC_MSG='इस व्यू में माइक की अनुमति नहीं मिली। नीचे टाइप करके पूछें; असली ऐप में माइक चलेगा।';
+const MIC_MSG='माइक की अनुमति नहीं मिली। फ़ोन की सेटिंग्स → ऐप्स → Apna AI → अनुमतियाँ में माइक चालू करें।';
+const micErr=er=>er==='unsupported'?'इस ब्राउज़र में माइक उपलब्ध नहीं है':er==='not-allowed'?MIC_MSG:er==='network'?'आवाज़ पहचानने के लिए इंटरनेट / Google की आवाज़-सेवा नहीं मिली':'माइक में गड़बड़ी ('+er+')। थोड़ी देर बाद फिर कोशिश करें';
 
 /* ================= फ़ाइल बनाना: TXT / DOCX / PDF / CSV / XLSX / ZIP ================= */
 const xmlEsc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -1482,7 +1483,7 @@ function dictate(btn){
   if(!S.voice.stt){toast('बोलकर लिखना बंद है। सेटिंग्स → आवाज़ में चालू करें।');return}
   const inp=$('#inp',homeEl());const base=inp.value;
   btn.classList.add('mic-on');
-  recog=listen({onResult:(t)=>{inp.value=(base?base+' ':'')+t;inp.dispatchEvent(new Event('input'))},onEnd:()=>{stopRecog()},onError:(er)=>{stopRecog();micBad=true;toast(er==='unsupported'?'इस ब्राउज़र में बोलकर लिखना उपलब्ध नहीं है।':MIC_MSG,4500)}});
+  recog=listen({onResult:(t)=>{inp.value=(base?base+' ':'')+t;inp.dispatchEvent(new Event('input'))},onEnd:()=>{stopRecog()},onError:(er)=>{stopRecog();micBad=true;toast(er==='unsupported'?'इस ब्राउज़र में बोलकर लिखना उपलब्ध नहीं है।':micErr(er),4500)}});
   if(!recog)btn.classList.remove('mic-on');
 }
 
@@ -1646,7 +1647,11 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
         if(last&&!fin2){empties=0;ask(last);return}
         empties++;
         if(auto&&empties<5)again(400);else{auto=false;IDLE()}},
-      onError:er=>{stopL();auto=false;state('','टाइप करके पूछें',er==='unsupported'?'इस ब्राउज़र में माइक उपलब्ध नहीं है':MIC_MSG,'AI तैयार है');toast(er==='unsupported'?'इस ब्राउज़र में माइक उपलब्ध नहीं है।':MIC_MSG,4500)}
+      onError:er=>{stopL();
+        if(er==='not-allowed'||er==='unsupported'||er==='network'){auto=false;state('','टाइप करके पूछें',micErr(er),'AI तैयार है');toast(micErr(er),4500);return}
+        empties++;
+        if(auto&&empties<6){state('listen','मैं सुन रहा हूँ','माइक फिर चालू हो रहा है…','सुन रहा हूँ');again(1200)}
+        else{auto=false;state('','माइक रुक गया',micErr(er),'AI तैयार है');toast(micErr(er),4500)}}
     });
     if(!vrec)$('#vmic',node).classList.remove('on');
   };
