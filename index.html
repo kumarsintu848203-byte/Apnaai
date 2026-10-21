@@ -834,6 +834,23 @@ function makeOpenAI(c){
         const last=msgs[msgs.length-1];
         if(last&&last.role==='user')last.content=[{type:'text',text:String(last.content||'')||'इस फ़ोटो के बारे में बताओ।'}].concat(urls.map(u=>({type:'image_url',image_url:{url:u}})));
       }
+      /* इंटरनेट खोज: Worker का /gemini/search (Gemini + Google Search); सिर्फ़ Gemini लाइन पर */
+      if(o.web&&!o.json&&!(o.images&&o.images.length)&&/\/gemini\/v1\/?$/i.test(c.url||'')){
+        let rs;
+        try{rs=await fetch(base.replace(/\/v1$/i,'/search'),{method:'POST',signal:o.signal,headers:Object.assign({'Content-Type':'application/json'},c.key?{Authorization:'Bearer '+c.key}:{}),body:JSON.stringify({model:c.model,messages:msgs})})}
+        catch(e){if(e&&e.name==='AbortError')throw {code:'cancelled',message:'रोका गया'};throw {code:'network',message:'खोज-सर्वर से कनेक्शन नहीं हो सका।'}}
+        if(!rs.ok){
+          let pm='';try{const j=await rs.json();if(j&&j.error&&typeof j.error.message==='string')pm=j.error.message.slice(0,220)}catch(e){}
+          throw {code:'http_'+rs.status,message:pm||('खोज-सर्वर ने '+rs.status+' लौटाया। Worker में नया कोड डाला है या नहीं जाँचें।')};
+        }
+        const j=await rs.json();const t=String(j.text||'').trim();
+        const src=(Array.isArray(j.sources)?j.sources:[]).slice(0,6).filter(x=>x&&/^https?:\/\//.test(x.url)).map(x=>'- ['+String(x.title||x.url).replace(/[\[\]]/g,'')+']('+x.url+')').join('\n');
+        const qs=(Array.isArray(j.queries)?j.queries:[]).filter(x=>typeof x==='string').slice(0,3);
+        /* Gemini ने सच में खोजा हो तभी "इंटरनेट से" लिखो; न खोजा हो तो सामान्य जवाब */
+        const searched=qs.length>0||!!src;
+        const out=(searched?'🌐 *यह जवाब इंटरनेट से लिया गया है'+(qs.length?' (खोजा: '+qs.join(', ')+')':'')+'।*\n\n':'')+t+(src?'\n\n**स्रोत (वेबसाइट):**\n'+src:'');
+        o.onText&&o.onText(out);return {text:out,truncated:false};
+      }
       let res;
       /* "तेज़" मोड: Gemini लाइन पर अपने-आप सबसे तेज़ मॉडल (Flash-Lite) और छोटा जवाब; वह न चले तो सामान्य मॉडल */
       const quick=o.tier==='quick'&&!o.json;
@@ -910,6 +927,12 @@ function sysPrompt({voice=false,extra=''}={}){
     'आज की तारीख़: '+new Date().toLocaleDateString('hi-IN',{dateStyle:'full'})+'।',
     extra
   ].filter(Boolean).join('\n');
+}
+/* ऐसे सवाल जिनका जवाब ताज़ा जानकारी माँगता है — इन पर Gemini को Google Search का औज़ार दिया जाता है
+   (खोजना है या नहीं, यह Gemini खुद तय करता है; खोजने पर जवाब में साफ़ लिखा आता है) */
+function needsWeb(t){
+  t=String(t||'');if(t.length>500)return false;
+  return /(आज|अभी|ताज़ा|ताजा|आजकल|हाल ही|नवीनतम|नया|नई|न्यूज़|न्यूज|खबर|ख़बर|समाचार|कीमत|भाव|रेट|स्कोर|मैच|मौसम|चुनाव|रिज़ल्ट|रिजल्ट|नतीजा|वर्तमान|लेटेस्ट|कौन है|कौन हैं|कितना है|कब है|कब होगा|latest|today|tonight|current|news|price|score|weather|result|recent|right now|who is|who won|stock|rate)/i.test(t)||/20(2[4-9]|3\d)/.test(t);
 }
 function chooseTier(text){
   if(S.tier==='fast')return 'quick';
@@ -1452,11 +1475,12 @@ async function runAssistant({voice=false}={}){
   const text=lastUser?lastUser.content:'';
   const tier=chooseTier(text);
   const imgs=(ATT[lastUser&&lastUser.id]||[]).filter(a=>a.kind==='image').map(a=>a.blob);
+  const useWeb=!imgs.length&&needsWeb(text);
   ctrl=new AbortController();busy=true;liveText='';setSendIcon();paintFeed(true);
   const prov=PROV[S.provider]||PROV.claude;
   const t0=performance.now();let reply='',cut=false,err=null;
   try{
-    const r=await ai({turns:historyForModel(),system:sysPrompt({voice}),tier,effort:(S.deep&&tier==='complex')?'high':undefined,images:imgs,signal:ctrl.signal,kind:'msg',onText:liveUpdate});
+    const r=await ai({turns:historyForModel(),system:sysPrompt({voice}),tier,effort:(S.deep&&tier==='complex')?'high':undefined,images:imgs,web:useWeb,signal:ctrl.signal,kind:'msg',onText:liveUpdate});
     reply=r.text;cut=r.truncated;
   }catch(e){
     err=e;reply=(e&&e.text)||liveText||'';
