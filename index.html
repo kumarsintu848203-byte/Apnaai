@@ -835,21 +835,27 @@ function makeOpenAI(c){
         if(last&&last.role==='user')last.content=[{type:'text',text:String(last.content||'')||'इस फ़ोटो के बारे में बताओ।'}].concat(urls.map(u=>({type:'image_url',image_url:{url:u}})));
       }
       /* इंटरनेट खोज: Worker का /gemini/search (Gemini + Google Search); सिर्फ़ Gemini लाइन पर */
+      let prefix='';
       if(o.web&&!o.json&&!(o.images&&o.images.length)&&/\/gemini\/v1\/?$/i.test(c.url||'')){
-        let rs;
-        try{rs=await fetch(base.replace(/\/v1$/i,'/search'),{method:'POST',signal:o.signal,headers:Object.assign({'Content-Type':'application/json'},c.key?{Authorization:'Bearer '+c.key}:{}),body:JSON.stringify({model:c.model,messages:msgs})})}
-        catch(e){if(e&&e.name==='AbortError')throw {code:'cancelled',message:'रोका गया'};throw {code:'network',message:'खोज-सर्वर से कनेक्शन नहीं हो सका।'}}
-        if(!rs.ok){
-          let pm='';try{const j=await rs.json();if(j&&j.error&&typeof j.error.message==='string')pm=j.error.message.slice(0,220)}catch(e){}
-          throw {code:'http_'+rs.status,message:pm||('खोज-सर्वर ने '+rs.status+' लौटाया। Worker में नया कोड डाला है या नहीं जाँचें।')};
+        try{
+          let rs;
+          try{rs=await fetch(base.replace(/\/v1$/i,'/search'),{method:'POST',signal:o.signal,headers:Object.assign({'Content-Type':'application/json'},c.key?{Authorization:'Bearer '+c.key}:{}),body:JSON.stringify({model:c.model,messages:msgs})})}
+          catch(e){if(e&&e.name==='AbortError')throw {code:'cancelled',message:'रोका गया'};throw {code:'network',message:'खोज-सर्वर से कनेक्शन नहीं हो सका।'}}
+          if(!rs.ok)throw {code:'http_'+rs.status,message:''};
+          const j=await rs.json();const t=String(j.text||'').trim();
+          if(!t)throw {code:'empty',message:''};
+          const src=(Array.isArray(j.sources)?j.sources:[]).slice(0,6).filter(x=>x&&/^https?:\/\//.test(x.url)).map(x=>'- ['+String(x.title||x.url).replace(/[\[\]]/g,'')+']('+x.url+')').join('\n');
+          const qs=(Array.isArray(j.queries)?j.queries:[]).filter(x=>typeof x==='string').slice(0,3);
+          /* Gemini ने सच में खोजा हो तभी "इंटरनेट से" लिखो; न खोजा हो तो सामान्य जवाब */
+          const searched=qs.length>0||!!src;
+          const out=(searched?'🌐 *यह जवाब इंटरनेट से लिया गया है'+(qs.length?' (खोजा: '+qs.join(', ')+')':'')+'।*\n\n':'')+t+(src?'\n\n**स्रोत (वेबसाइट):**\n'+src:'');
+          o.onText&&o.onText(out);return {text:out,truncated:false};
+        }catch(e){
+          if(e&&e.code==='cancelled')throw e;
+          /* खोज न चले तो रुकने की जगह सामान्य जवाब दो, और साफ़ बताओ */
+          const why=e&&e.code==='http_429'?'Google ने इस खाते पर खोज की अनुमति/कोटा नहीं दिया':(e&&e.code==='http_404'?'Worker में नया कोड नहीं है':'खोज अभी नहीं चल सकी');
+          prefix='⚠ *इंटरनेट खोज नहीं हो सकी ('+why+'), इसलिए यह मेरी पुरानी जानकारी से जवाब है — ताज़ा नहीं हो सकता।*\n\n';
         }
-        const j=await rs.json();const t=String(j.text||'').trim();
-        const src=(Array.isArray(j.sources)?j.sources:[]).slice(0,6).filter(x=>x&&/^https?:\/\//.test(x.url)).map(x=>'- ['+String(x.title||x.url).replace(/[\[\]]/g,'')+']('+x.url+')').join('\n');
-        const qs=(Array.isArray(j.queries)?j.queries:[]).filter(x=>typeof x==='string').slice(0,3);
-        /* Gemini ने सच में खोजा हो तभी "इंटरनेट से" लिखो; न खोजा हो तो सामान्य जवाब */
-        const searched=qs.length>0||!!src;
-        const out=(searched?'🌐 *यह जवाब इंटरनेट से लिया गया है'+(qs.length?' (खोजा: '+qs.join(', ')+')':'')+'।*\n\n':'')+t+(src?'\n\n**स्रोत (वेबसाइट):**\n'+src:'');
-        o.onText&&o.onText(out);return {text:out,truncated:false};
       }
       let res;
       /* "तेज़" मोड: Gemini लाइन पर अपने-आप सबसे तेज़ मॉडल (Flash-Lite) और छोटा जवाब; वह न चले तो सामान्य मॉडल */
@@ -878,10 +884,10 @@ function makeOpenAI(c){
         for(const ln of lines){
           const s=ln.trim();if(!s.startsWith('data:'))continue;
           const d=s.slice(5).trim();if(d==='[DONE]')continue;
-          try{const j=JSON.parse(d);const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;if(t){out+=t;o.onText&&o.onText(out)}}catch(e){}
+          try{const j=JSON.parse(d);const t=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content;if(t){out+=t;o.onText&&o.onText(prefix+out)}}catch(e){}
         }
       }
-      return {text:out,truncated:false};
+      return {text:prefix+out,truncated:false};
     },
     ...(c.imgModel?{async img(o){
       const base=c.url.replace(/\/+$/,'');
