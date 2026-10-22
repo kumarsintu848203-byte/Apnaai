@@ -1055,7 +1055,23 @@ const TTS={
     });
     return true;
   },
-  stop(){try{speechSynthesis.cancel()}catch(e){}this.on=false}
+  stop(){try{speechSynthesis.cancel()}catch(e){}this.on=false;this.q={pend:0,fin:false,cb:null}},
+  /* बहता बोलना (आवाज़ वाली स्क्रीन): जवाब बनते-बनते वाक्य-वाक्य कतार में जोड़ो, पूरा जवाब आने का इंतज़ार न करो */
+  q:{pend:0,fin:false,cb:null},
+  begin(){this.stop();this.on=true;S.usage.tts++;save()},
+  add(text,{lang}={}){
+    if(!('speechSynthesis' in window))return false;
+    const plain=stripMd(text);if(!plain||plain.replace(/[\s.,!?।]/g,'').length<1)return false;
+    const l=lang||(S.voice.lang==='auto'?(devaRatio(plain)>.3?'hi':'en'):S.voice.lang);
+    const u=new SpeechSynthesisUtterance(plain);u.lang=l==='en'?'en-IN':'hi-IN';u.rate=S.voice.speed||1;
+    const v=this.pick(l);if(v)u.voice=v;
+    const q=this.q;q.pend++;this.on=true;
+    const done=()=>{if(this.q!==q)return;q.pend--;if(q.pend<=0&&q.fin){this.on=false;q.cb&&q.cb()}};
+    u.onend=done;u.onerror=done;
+    try{speechSynthesis.speak(u)}catch(e){done()}
+    return true;
+  },
+  finish(cb){const q=this.q;q.fin=true;q.cb=cb;if(q.pend<=0){this.on=false;cb&&cb()}}
 };
 function listen({lang,onResult,onEnd,onError}){
   if(window.ApnaAndroid&&window.ApnaAndroid.startListen){
@@ -1413,12 +1429,14 @@ function paintFeed(force){
   paintAtts();
 }
 let liveRaf=0;
+let voiceHook=null;   /* आवाज़ वाली स्क्रीन: जवाब के बढ़ते टेक्स्ट पर वाक्य-वाक्य बोलने के लिए */
 function renderLive(){
   if(!liveMd)return;
   liveMd.innerHTML=liveText?md(liveText):'<span class="dots"><i></i><i></i><i></i></span><span class="thinking"> सोच रहा हूँ…</span>';
 }
 function liveUpdate(t){
   liveText=t;
+  if(voiceHook)try{voiceHook(t)}catch(e){}
   if(liveRaf)return;
   liveRaf=requestAnimationFrame(()=>{
     liveRaf=0;
@@ -1479,7 +1497,7 @@ function notifyReply(){
 async function runAssistant({voice=false}={}){
   const lastUser=[...cur.turns].reverse().find(t=>t.role==='user');
   const text=lastUser?lastUser.content:'';
-  const tier=chooseTier(text);
+  const tier=(voice&&(S.tier==='auto'||S.tier==='fast'))?'quick':chooseTier(text);   /* आवाज़ में तेज़ जवाब ज़रूरी */
   const imgs=(ATT[lastUser&&lastUser.id]||[]).filter(a=>a.kind==='image').map(a=>a.blob);
   const useWeb=!imgs.length&&needsWeb(text);
   ctrl=new AbortController();busy=true;liveText='';setSendIcon();paintFeed(true);
@@ -1696,7 +1714,7 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
   node.innerHTML=`
   <div class="v-top"><button class="ib sq" data-back aria-label="वापस">${ic('back',24)}</button><button class="ib sq" data-go="s_voice" aria-label="और विकल्प">${ic('dotsh',22)}</button></div>
   <div class="v-t"><div class="v-h" id="vh">बात शुरू करें</div><div class="v-s" id="vs">माइक अपने-आप चालू रहता है — बस बोलिए, या नीचे लिखिए</div></div>
-  <div class="v-orb"><div class="orb-o big"><div class="orb" id="vorb"></div></div></div>
+  <div class="v-orb" data-act="vorb"><div class="orb-o big"><div class="orb" id="vorb"></div></div></div>
   <div class="v-st" id="vst">AI तैयार है</div>
   <div class="v-btns"><button class="cb" data-act="vmic" id="vmic" aria-label="माइक">${ic('mic',26)}</button><button class="cb" data-act="vspk" id="vspk" aria-label="आवाज़">${ic('volume',26)}</button><button class="cb red" data-act="vend" aria-label="बंद करें">${ic('close',26)}</button></div>
   <div class="v-in"><button class="cb sm" data-act="vplus" aria-label="जोड़ें">${ic('plus',22)}</button><div class="v-box"><input id="vtxt" placeholder="कुछ भी पूछें" aria-label="कुछ भी पूछें" autocomplete="off"><button class="send sm" data-act="vsend" aria-label="भेजें">${ic('send',20)}</button></div></div>`;
@@ -1716,7 +1734,7 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
         empties++;
         if(auto&&empties<5)again(400);else{auto=false;IDLE()}},
       onError:er=>{stopL();
-        if(er==='not-allowed'||er==='unsupported'||er==='network'){auto=false;state('','टाइप करके पूछें',micErr(er),'AI तैयार है');toast(micErr(er),4500);return}
+        if(er==='not-allowed'||er==='unsupported'){auto=false;state('','टाइप करके पूछें',micErr(er),'AI तैयार है');toast(micErr(er),4500);return}
         empties++;
         if(auto&&empties<6){state('listen','मैं सुन रहा हूँ','माइक फिर चालू हो रहा है…','सुन रहा हूँ');again(1200)}
         else{auto=false;state('','माइक रुक गया',micErr(er),'AI तैयार है');toast(micErr(er),4500)}}
@@ -1730,12 +1748,30 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
     const turn={id:uid(),role:'user',content:text,ts:Date.now(),voice:true};
     cur.turns.push(turn);cur.updated=Date.now();
     state('think','सोच रहा हूँ…','आपने कहा: '+text.slice(0,90),'जवाब बन रहा है');
+    /* बहता बोलना: जवाब बनते-बनते पूरे वाक्य बोलना शुरू कर दो */
+    let spoken=0,began=false;
+    if(voiceOut){
+      TTS.begin();
+      voiceHook=txt=>{
+        const rest=txt.slice(spoken);const re=/[\s\S]*?(?:[।!?.](?=\s)|\n)/g;let m,last=0;
+        while((m=re.exec(rest))){
+          last=re.lastIndex;
+          if(TTS.add(m[0])&&!began){began=true;state('speak','मैं बोल रहा हूँ',txt.replace(/\s+/g,' ').slice(0,160),'सुनिए…')}
+        }
+        spoken+=last;
+      };
+    }
     const reply=await runAssistant({voice:true});
+    voiceHook=null;
     const last=cur.turns[cur.turns.length-1];
-    if(!reply||(last&&last.err)){state('','कुछ गड़बड़ हुई',last&&last.content||'फिर कोशिश करें','AI तैयार है');again(2500);return}
-    state('speak','मैं बोल रहा हूँ',reply.replace(/\s+/g,' ').slice(0,160),'सुनिए…');
-    if(voiceOut){if(!TTS.say(reply,{onend:()=>{state('','बात जारी रखें','बोलिए, मैं सुन रहा हूँ','AI तैयार है');again(400)}}))state('','जवाब तैयार है',reply.slice(0,160),'AI तैयार है')}
-    else{state('','जवाब तैयार है',reply.replace(/\s+/g,' ').slice(0,160),'आवाज़ बंद है');again(1500)}
+    if(!reply||(last&&last.err)){TTS.stop();state('','कुछ गड़बड़ हुई',last&&last.content||'फिर कोशिश करें','AI तैयार है');again(2500);return}
+    if(voiceOut){
+      const tail=reply.slice(spoken);
+      if(TTS.add(tail)&&!began){began=true;state('speak','मैं बोल रहा हूँ',reply.replace(/\s+/g,' ').slice(0,160),'सुनिए…')}
+      if(!began){state('','जवाब तैयार है',reply.slice(0,160),'AI तैयार है');again(1200);return}
+      state('speak','मैं बोल रहा हूँ',reply.replace(/\s+/g,' ').slice(0,160),'सुनिए…');
+      TTS.finish(()=>{state('','बात जारी रखें','बोलिए, मैं सुन रहा हूँ','AI तैयार है');again(400)});
+    }else{state('','जवाब तैयार है',reply.replace(/\s+/g,' ').slice(0,160),'आवाज़ बंद है');again(1500)}
   };
   wire(node,{act:{
     vmic:t=>{
@@ -1744,7 +1780,11 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
       auto=true;empties=0;startL();
     },
     vspk:t=>{voiceOut=!voiceOut;t.innerHTML=ic(voiceOut?'volume':'mute',26);t.classList.toggle('off',!voiceOut);if(!voiceOut)TTS.stop();toast(voiceOut?'AI की आवाज़ चालू':'AI की आवाज़ बंद')},
-    vend:()=>{auto=false;alive=false;clearTimeout(timer);TTS.stop();stopL();if(busy&&ctrl)ctrl.abort();back()},
+    vend:()=>{auto=false;alive=false;voiceHook=null;clearTimeout(timer);TTS.stop();stopL();if(busy&&ctrl)ctrl.abort();back()},
+    vorb:()=>{
+      if(TTS.on){TTS.stop();state('','बात जारी रखें','बोलिए, मैं सुन रहा हूँ','AI तैयार है');auto=true;empties=0;again(150)}
+      else if(!vrec&&!busy){auto=true;empties=0;startL()}
+    },
     vplus:()=>openPlus(),
     vsend:()=>{const i=$('#vtxt',node);const v=i.value;i.value='';ask(v)}
   }});
@@ -1752,7 +1792,7 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
   r=null;
   node._vstop=()=>{auto=false;alive=false;clearTimeout(timer);stopL()};
   setTimeout(()=>{if(alive&&auto)startL()},800);
-},onLeave(rec){TTS.stop();try{rec&&rec.node&&rec.node._vstop&&rec.node._vstop()}catch(e){}}};
+},onLeave(rec){voiceHook=null;TTS.stop();try{rec&&rec.node&&rec.node._vstop&&rec.node._vstop()}catch(e){}}};
 
 /* ================= सेटिंग्स: साझा हिस्से ================= */
 function screenPaint(node,title,body,right=''){
