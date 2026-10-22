@@ -1604,9 +1604,11 @@ const FEATURES=[
   {id:'f_cloud',i:'cloud',t:'क्लाउड फ़ाइलें',d:'जुड़ी हुई सेवाओं से फ़ाइलें लेना'},
   {id:'f_templates',i:'tmpl',t:'टेम्पलेट्स',d:'ईमेल, रिज़्यूमे और तैयार प्रारूप'}
 ];
+/* ➕ मेन्यू से हटाए गए औज़ार (बाकी जगहों से खुलते रहेंगे) */
+const PLUS_HIDE=new Set(['f_doc','f_sheet','f_study','f_translate','f_photo','f_templates']);
 function openPlus(){
   const ATTS=[{i:'camera',t:'कैमरा से फ़ोटो',d:'अभी फ़ोटो खींचकर भेजें',v:'cam'},{i:'image',t:'गैलरी से फ़ोटो',d:'फ़ोन की फ़ोटो चुनें',v:'img'},{i:'clip',t:'फ़ाइल जोड़ें',d:'PDF, Word, Excel, टेक्स्ट आदि',v:'file'}];
-  const sh=openSheet({title:'क्या जोड़ना है?',cls:'plus',html:`<div class="plist">${ATTS.map(a=>item({i:a.i,t:a.t,d:a.d,act:'pick',v:a.v})).join('')}${FEATURES.map(f=>item({i:f.i,t:f.t,d:f.d,go:f.id})).join('')}</div>`});
+  const sh=openSheet({title:'क्या जोड़ना है?',cls:'plus',html:`<div class="plist">${ATTS.map(a=>item({i:a.i,t:a.t,d:a.d,act:'pick',v:a.v})).join('')}${FEATURES.filter(f=>!PLUS_HIDE.has(f.id)).map(f=>item({i:f.i,t:f.t,d:f.d,go:f.id})).join('')}</div>`});
   sh.body.addEventListener('click',async e=>{
     const k=e.target.closest('[data-act="pick"]');
     if(k){
