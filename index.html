@@ -3160,6 +3160,7 @@ async function svgFromAI(prompt,W,H,{sig,tier='default',extra='',onText}={}){
 /* ================= टूल: इमेज बनाना ================= */
 const RATIOS={'1:1':[1000,1000],'4:5':[1000,1250],'16:9':[1280,720],'9:16':[720,1280]};
 T.img={prompt:'',style:'flat',ratio:'1:1',q:'default',eng:'svg',cur:null,hist:[],edit:''};
+const STYLE_EN={cartoon:'fun cartoon style, bold outlines, bright colors',flat:'modern flat illustration, clean shapes, limited palette',logo:'simple memorable logo, few colors, centered',poster:'eye-catching poster, strong contrast',scene:'beautiful natural scene, layered depth, photorealistic',pattern:'beautiful seamless repeating pattern'};
 const STYLE_X={cartoon:'मज़ेदार कार्टून शैली, मोटी रेखाएँ, चमकीले रंग।',flat:'आधुनिक फ़्लैट इलस्ट्रेशन, साफ़ आकार, सीमित रंग-पट्टी।',logo:'सरल, यादगार लोगो; कम रंग; बीच में संतुलित।',poster:'आकर्षक पोस्टर; बड़ा शीर्षक टेक्स्ट; मज़बूत रंग-विरोधाभास।',scene:'सुंदर प्राकृतिक दृश्य; आसमान की ढाल, दूर-पास की परतें।',pattern:'दोहराने वाला सुंदर पैटर्न/वॉलपेपर।'};
 SCREENS.t_image={render(node,p){
   const G=T.img;if(p.prompt)G.prompt=p.prompt;
@@ -3192,7 +3193,13 @@ SCREENS.t_image={render(node,p){
         const [W,H]=RATIOS[G.ratio];const box=$('#gres',node);box.innerHTML=`<div class="card"><div class="padi md">${THINK}</div></div>`;
         const r=await rn.run(async sig=>{
           if(G.eng==='model'&&hasModel){
-            try{const url=await prov.img({prompt:G.prompt+' — '+STYLE_X[G.style],ratio:G.ratio,signal:sig});return {kind:'png',url}}
+            try{
+              let en=G.prompt;
+              if(/[^\x00-\x7F]/.test(en)){
+                try{const tr=await ai({prompt:'Translate this image request into one clear, detailed English image-generation prompt (max 60 words). Describe the subject literally and concretely. Output ONLY the English prompt, nothing else.\n\n'+G.prompt,system:'You write English prompts for text-to-image models.',tier:'quick',signal:sig,kind:'tool'});
+                  const t=(tr.text||'').trim().replace(/^["'`]+|["'`]+$/g,'');if(t&&t.length<600)en=t}catch(e2){if(e2&&e2.code==='cancelled')throw e2}
+              }
+              const url=await prov.img({prompt:en+', '+STYLE_EN[G.style],ratio:G.ratio,signal:sig});return {kind:'png',url}}
             catch(e){if(e&&e.code==='cancelled')throw e;toast('इमेज-मॉडल नहीं चला ('+((e&&e.message)||'गड़बड़')+') — वेक्टर (SVG) चित्र बना रहा हूँ',5000)}
           }
           const svg=await svgFromAI(G.prompt,W,H,{sig,tier:G.q,extra:'शैली: '+STYLE_X[G.style]});return {kind:'svg',svg,url:svgURL(svg),W,H};
