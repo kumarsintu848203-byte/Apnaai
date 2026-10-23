@@ -810,11 +810,19 @@ function makeOpenAI(c){
   const visionOk=c.vision===true||/\/(gemini|openai)\/v1\/?$/i.test(c.url||'');
   const extra=c.imgModel?{async img(o){
     const base=c.url.replace(/\/+$/,'');
-    const size={'1:1':'1024x1024','4:5':'1024x1280','16:9':'1792x1024','9:16':'1024x1792'}[o.ratio]||'1024x1024';
-    let res;
-    try{res=await fetch(base+'/images/generations',{method:'POST',signal:o.signal,headers:Object.assign({'Content-Type':'application/json'},c.key?{Authorization:'Bearer '+c.key}:{}),body:JSON.stringify({model:c.imgModel,prompt:o.prompt,size,n:1,response_format:'b64_json'})})}
-    catch(e){if(e&&e.name==='AbortError')throw {code:'cancelled',message:'रोका गया'};throw {code:'network',message:'इमेज सर्वर से कनेक्शन नहीं हो सका।'}}
-    if(!res.ok)throw {code:'http_'+res.status,message:'इमेज सर्वर ने '+res.status+' लौटाया। मॉडल का नाम जाँचें।'};
+    const SZ={'1:1':'1024x1024','4:5':'1024x1280','16:9':'1792x1024','9:16':'1024x1792'};
+    const go=async size=>{
+      try{return await fetch(base+'/images/generations',{method:'POST',signal:o.signal,headers:Object.assign({'Content-Type':'application/json'},c.key?{Authorization:'Bearer '+c.key}:{}),body:JSON.stringify({model:c.imgModel,prompt:o.prompt,size,n:1,response_format:'b64_json'})})}
+      catch(e){if(e&&e.name==='AbortError')throw {code:'cancelled',message:'रोका गया'};throw {code:'network',message:'इमेज सर्वर से कनेक्शन नहीं हो सका।'}}
+    };
+    let size=SZ[o.ratio]||'1024x1024';
+    let res=await go(size);
+    /* कुछ सेवाएँ बड़े/अलग आकार नहीं लेतीं: चौकोर आकार पर एक बार दोबारा */
+    if(!res.ok&&res.status===400&&size!=='1024x1024')res=await go('1024x1024');
+    if(!res.ok){
+      let pm='';try{const j=await res.json();if(j&&j.error&&typeof j.error.message==='string')pm=j.error.message.slice(0,200)}catch(e){}
+      throw {code:'http_'+res.status,message:pm||('इमेज सर्वर ने '+res.status+' लौटाया। मॉडल का नाम जाँचें।')};
+    }
     const j=await res.json(),d=j.data&&j.data[0];
     if(d&&d.b64_json)return 'data:image/png;base64,'+d.b64_json;if(d&&d.url)return d.url;
     throw {code:'bad',message:'इमेज सर्वर से तस्वीर नहीं मिली।'};
@@ -889,17 +897,15 @@ function makeOpenAI(c){
       }
       return {text:prefix+out,truncated:false};
     },
-    ...(c.imgModel?{async img(o){
-      const base=c.url.replace(/\/+$/,'');
-      const size={'16:9':'1792x1024','9:16':'1024x1792'}[o.ratio]||'1024x1024';
-      let res;
-      try{res=await fetch(base+'/images/generations',{method:'POST',signal:o.signal,headers:Object.assign({'Content-Type':'application/json'},c.key?{Authorization:'Bearer '+c.key}:{}),body:JSON.stringify({model:c.imgModel,prompt:o.prompt,n:1,size,response_format:'b64_json'})})}
-      catch(e){if(e&&e.name==='AbortError')throw {code:'cancelled',message:'रोका गया'};throw {code:'network',message:'इमेज-सर्वर से कनेक्शन नहीं हो सका।'}}
-      if(!res.ok)throw {code:'http_'+res.status,message:'इमेज-सर्वर ने '+res.status+' लौटाया।'};
-      const j=await res.json(),b=j.data&&j.data[0]&&j.data[0].b64_json;
-      if(!b)throw {message:'इमेज-सर्वर से चित्र नहीं मिला (b64_json चाहिए)।'};
-      return 'data:image/png;base64,'+b;
-    }}:{})};
+  };
+}
+/* चित्र बनाने वाला प्रोवाइडर: चुनी हुई लाइन में इमेज-मॉडल हो तो वही; वरना Worker के /pollinations से (Gemini/OpenAI लाइन की ही चाबी से) */
+const POLL_IMG_MODEL='black-forest-labs/flux.1-schnell';
+function imgProvider(){
+  const a=PROV[S.provider];if(a&&a.img)return a;
+  const c=(S.customs||[]).find(x=>/\/(gemini|openai)\/v1\/?$/i.test(x.url||''));
+  if(!c)return null;
+  return makeOpenAI(Object.assign({},c,{id:'pollimg',name:'Pollinations',url:c.url.replace(/\/(gemini|openai)\/v1\/?$/i,'/pollinations/v1'),imgModel:POLL_IMG_MODEL}));
 }
 function loadCustoms(){Object.keys(PROV).forEach(k=>{if(PROV[k].custom)delete PROV[k]});S.customs.forEach(c=>regProvider(makeOpenAI(c)));if(!PROV[S.provider]||(S.provider==='claude'&&!window.claude&&S.customs.length)){S.provider=window.claude?'claude':(S.customs[0]?S.customs[0].id:'');save()}}
 loadCustoms();
@@ -3158,8 +3164,9 @@ const STYLE_X={cartoon:'मज़ेदार कार्टून शैली
 SCREENS.t_image={render(node,p){
   const G=T.img;if(p.prompt)G.prompt=p.prompt;
   let rn=null;
-  const prov=PROV[S.provider];const hasModel=!!(prov&&prov.img);
+  const prov=imgProvider();const hasModel=!!(prov&&prov.img);
   if(!hasModel)G.eng='svg';
+  else if(p.auto)G.eng='model';
   const resHTML=()=>G.cur?`<img class="genimg" src="${G.cur.url}" alt="बनाई गई तस्वीर">
     <div class="row2"><button class="btn sm" data-act="gpng">${ic('download',16)} PNG सेव</button>${G.cur.svg?`<button class="btn sm ghost" data-act="gsvg">${ic('download',16)} SVG सेव</button><button class="btn sm ghost" data-act="gcopy">${ic('copy',16)} कोड कॉपी</button>`:''}<button class="btn sm ghost" data-act="gedit">${ic('image',16)} फ़ोटो एडिटर में खोलें</button></div>
     ${G.cur.svg?`${lbl('बदलाव करवाएँ')}<div class="inline"><input class="fld" id="gedt" placeholder="जैसे: आसमान शाम का करो / सूरज बड़ा करो"><button class="btn sm" id="gedb" data-act="gchg">बदलें</button></div>`:''}`:'';
@@ -3184,7 +3191,10 @@ SCREENS.t_image={render(node,p){
         G.prompt=$('#gp',node).value.trim();if(!G.prompt){toast('पहले लिखें कि क्या बनाना है');return}
         const [W,H]=RATIOS[G.ratio];const box=$('#gres',node);box.innerHTML=`<div class="card"><div class="padi md">${THINK}</div></div>`;
         const r=await rn.run(async sig=>{
-          if(G.eng==='model'&&hasModel){const url=await prov.img({prompt:G.prompt+' — '+STYLE_X[G.style],ratio:G.ratio,signal:sig});return {kind:'png',url}}
+          if(G.eng==='model'&&hasModel){
+            try{const url=await prov.img({prompt:G.prompt+' — '+STYLE_X[G.style],ratio:G.ratio,signal:sig});return {kind:'png',url}}
+            catch(e){if(e&&e.code==='cancelled')throw e;toast('इमेज-मॉडल नहीं चला ('+((e&&e.message)||'गड़बड़')+') — वेक्टर (SVG) चित्र बना रहा हूँ',5000)}
+          }
           const svg=await svgFromAI(G.prompt,W,H,{sig,tier:G.q,extra:'शैली: '+STYLE_X[G.style]});return {kind:'svg',svg,url:svgURL(svg),W,H};
         });
         if(r){setCur(r);draw()}else box.innerHTML=resHTML();
