@@ -394,7 +394,7 @@ const DEF={
   lang:'hi',style:'balanced',enter:'newline',start:'new',tier:'auto',deep:true,verify:false,provider:(window.claude?'claude':''),
   history:true,reduce:false,contrast:false,search:{on:true,tavily:true,wiki:true},
   notif:{all:true,reply:true,study:false,update:true,sound:true,vibrate:false},
-  voice:{stt:true,mode:true,lang:'hi',speed:1,voiceURI:''},
+  voice:{stt:true,mode:true,lang:'hi',speed:1,voiceURI:'',engine:'phone',gvoice:'Kore'},
   lock:{on:false,hash:''},projects:[],customs:[],templates:[],feedback:[],
   usage:{days:{},tiers:{},prov:{},tts:0,ms:[]},
   study:{stats:{},last:'',streak:0,log:[]},
@@ -1101,6 +1101,42 @@ function stripMd(t){
 
 /* ================= आवाज़: बोलना और सुनना ================= */
 const devaRatio=t=>{const d=(t.match(/[ऀ-ॿ]/g)||[]).length;return d/Math.max(1,t.replace(/\s/g,'').length)};
+
+/* ================= Gemini की प्राकृतिक आवाज़ (Worker /tts) =================
+   इंटरनेट से आवाज़ बनती है; न चले तो अपने-आप फ़ोन की आवाज़ पर लौट आता है। */
+const CLOUD={
+  ctx:null,src:null,failUntil:0,warned:0,
+  ok(){return !!(S.voice&&S.voice.engine==='gemini'&&Date.now()>this.failUntil&&searchEndpoint())},
+  unlock(){try{if(!this.ctx){const C=window.AudioContext||window.webkitAudioContext;if(!C)return;this.ctx=new C()}if(this.ctx.state==='suspended')this.ctx.resume()}catch(e){}},
+  async fetchAudio(text,voice){
+    const ep=searchEndpoint();if(!ep)return null;
+    const ac=new AbortController();const tm=setTimeout(()=>ac.abort(),30000);
+    try{
+      const r=await fetch(ep.url.replace(/\/search$/,'/tts'),{method:'POST',signal:ac.signal,headers:{'Content-Type':'application/json',Authorization:'Bearer '+ep.key},body:JSON.stringify({text,voice:voice||S.voice.gvoice||'Kore'})});
+      if(!r.ok){this.fail(r.status);return null}
+      const j=await r.json();if(!j.audio){this.fail(0);return null}
+      const bin=atob(j.audio);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+      this.unlock();if(!this.ctx)return null;
+      return await this.ctx.decodeAudioData(u.buffer);
+    }catch(e){this.fail(-1);return null}
+    finally{clearTimeout(tm)}
+  },
+  fail(code){
+    /* एक बार चूकने पर थोड़ी देर फ़ोन की आवाज़ इस्तेमाल करो, ताकि बातचीत न रुके */
+    this.failUntil=Date.now()+(code===429?600000:45000);
+    if(Date.now()-this.warned>60000){this.warned=Date.now();toast(code===429?'Gemini आवाज़ की मुफ़्त सीमा पूरी हुई — अभी फ़ोन की आवाज़ इस्तेमाल हो रही है':'Gemini आवाज़ अभी नहीं चली — फ़ोन की आवाज़ इस्तेमाल हो रही है',4500)}
+  },
+  play(buf,rate){
+    return new Promise(res=>{
+      try{
+        const s=this.ctx.createBufferSource();s.buffer=buf;s.playbackRate.value=rate||1;s.connect(this.ctx.destination);
+        this.src=s;s.onended=()=>{if(this.src===s)this.src=null;res()};s.start();
+      }catch(e){res()}
+    });
+  },
+  stop(){try{if(this.src){this.src.onended=null;this.src.stop()}}catch(e){}this.src=null}
+};
+document.addEventListener('pointerdown',()=>{if(S.voice&&S.voice.engine==='gemini')CLOUD.unlock()},{passive:true,capture:true});
 const TTS={
   on:false,
   voices(){try{return speechSynthesis.getVoices()||[]}catch(e){return[]}},
@@ -1114,6 +1150,7 @@ const TTS={
     this.stop();
     const plain=stripMd(text);if(!plain)return false;
     const l=lang||(S.voice.lang==='auto'?(devaRatio(plain)>.3?'hi':'en'):S.voice.lang);
+    if(CLOUD.ok()){this.begin();(plain.match(/[^।.!?\n]+[।.!?]*/g)||[plain]).forEach(p=>this.add(p,{lang:l}));this.finish(onend);return true}
     const parts=plain.match(/[^।.!?\n]+[।.!?]*/g)||[plain];
     const segs=[];let cur='';
     parts.forEach(p=>{if((cur+p).length>170){if(cur)segs.push(cur);cur=p}else cur+=p});
@@ -1129,9 +1166,9 @@ const TTS={
     });
     return true;
   },
-  stop(){try{speechSynthesis.cancel()}catch(e){}this.on=false;this.q={pend:0,fin:false,cb:null}},
+  stop(){try{speechSynthesis.cancel()}catch(e){}CLOUD.stop();if(this.q)this.q.dead=true;this.on=false;this.q={pend:0,fin:false,cb:null,dead:false,chain:Promise.resolve()}},
   /* बहता बोलना (आवाज़ वाली स्क्रीन): जवाब बनते-बनते वाक्य-वाक्य कतार में जोड़ो, पूरा जवाब आने का इंतज़ार न करो */
-  q:{pend:0,fin:false,cb:null},
+  q:{pend:0,fin:false,cb:null,dead:false,chain:Promise.resolve()},
   begin(){this.stop();this.on=true;S.usage.tts++;save()},
   add(text,{lang}={}){
     if(!('speechSynthesis' in window))return false;
@@ -1141,6 +1178,17 @@ const TTS={
     const v=this.pick(l);if(v)u.voice=v;
     const q=this.q;q.pend++;this.on=true;
     const done=()=>{if(this.q!==q)return;q.pend--;if(q.pend<=0&&q.fin){this.on=false;q.cb&&q.cb()}};
+    const phone=()=>new Promise(res=>{u.onend=res;u.onerror=res;try{speechSynthesis.speak(u)}catch(e){res()}});
+    if(CLOUD.ok()){
+      /* आवाज़ अभी से मँगवाओ, पर बजाओ क्रम से (पिछला वाक्य खत्म होने पर) */
+      const pf=CLOUD.fetchAudio(plain.slice(0,600));
+      q.chain=q.chain.then(async()=>{
+        if(q.dead)return;
+        const buf=await pf;if(q.dead)return;
+        if(buf)await CLOUD.play(buf,S.voice.speed||1);else await phone();
+      }).then(done,done);
+      return true;
+    }
     u.onend=done;u.onerror=done;
     try{speechSynthesis.speak(u)}catch(e){done()}
     return true;
@@ -2021,6 +2069,9 @@ SCREENS.s_voice={render(node){
   ${card(`
     ${item({i:'mic',t:'बोलकर लिखना',d:'बोलकर मैसेज लिखवाना',badge:S.voice.stt?'चालू':'बंद',bk:S.voice.stt?1:0,act:'stt'})}
     ${item({i:'wave',t:'AI वॉइस बातचीत',d:'अलग फ़ुल-स्क्रीन पर लाइव बातचीत',badge:S.voice.mode?'चालू':'बंद',bk:S.voice.mode?1:0,act:'vmode'})}
+    ${dv}<div class="padi">${rg('ve','AI की बोलने वाली आवाज़',[['phone','फ़ोन की आवाज़ (अभी वाली)'],['gemini','Gemini की आवाज़ (ज़्यादा प्राकृतिक, इंटरनेट चाहिए)']],S.voice.engine||'phone')}
+      ${S.voice.engine==='gemini'?`<div class="sp12"></div>${rg('gv','Gemini की आवाज़ चुनें',[['Kore','Kore — दृढ़'],['Puck','Puck — ऊर्जावान'],['Sulafat','Sulafat — गर्म'],['Enceladus','Enceladus — धीमी साँस जैसी']],S.voice.gvoice||'Kore')}<p class="note pad0">मुफ़्त सीमा पूरी होने या नेट न चलने पर अपने-आप फ़ोन की आवाज़ पर लौट आती है।</p>`:''}
+    </div>
     ${dv}<div class="padi">${rg('vl','आवाज़ की भाषा',[['hi','हिंदी'],['en','English'],['auto','अपने-आप पहचानें']],S.voice.lang)}</div>
     ${dv}<div class="padi"><div class="tt">AI की आवाज़ की गति</div>
       <div class="spd"><span>धीमी</span><b id="spv">${S.voice.speed.toFixed(1)}×</b><span>तेज़</span></div>
@@ -2041,7 +2092,7 @@ SCREENS.s_voice={render(node){
     act:{
       stt:()=>{S.voice.stt=!S.voice.stt;save();draw();voices()},
       vmode:()=>{S.voice.mode=!S.voice.mode;save();draw();voices()},
-      rg:t=>{S.voice.lang=t.dataset.v;save();rgUpdate(t)},
+      rg:t=>{const k=t.dataset.k;if(k==='ve'){S.voice.engine=t.dataset.v;save();if(t.dataset.v==='gemini')CLOUD.unlock();draw();voices();return}if(k==='gv'){S.voice.gvoice=t.dataset.v;save();rgUpdate(t);return}S.voice.lang=t.dataset.v;save();rgUpdate(t)},
       say:()=>{const l=S.voice.lang==='en'?'en':'hi';TTS.say(l==='en'?'Hello! I am Apna AI. How can I help you today?':'नमस्ते! मैं आपका अपना AI हूँ। बताइए, आज मैं आपकी क्या मदद करूँ?',{lang:l})},
       vc:t=>{S.voice.voiceURI=t.dataset.v;save();voices()}
     },
