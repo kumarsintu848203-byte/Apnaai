@@ -747,7 +747,8 @@ async function getSample(){
 }
 let _imgCaps;
 async function imgCaps(){
-  if(!window.claude){const p=PROV[S.provider];return(p&&p.custom&&p.vision)?{custom:true}:null}
+  /* चुना हुआ AI फ़ोटो न समझे (जैसे Groq GPT OSS) तो भी फ़ोटो लो: जवाब Gemini/OpenAI देगा */
+  if(!window.claude){return Object.values(PROV).some(p=>p.custom&&p.vision)?{custom:true}:null}
   if(_imgCaps!==undefined)return _imgCaps;
   try{const s=await getSample();const l=s&&s.limits?await s.limits():null;_imgCaps=(l&&l.images)||null}catch(e){_imgCaps=null}
   return _imgCaps;
@@ -1025,9 +1026,11 @@ const TIER_NAME={quick:'तेज़',default:'संतुलित',complex:'�
 /* सभी AI कॉल यहीं से: provider चुनकर चलाता है */
 async function ai(o){
   const p=PROV[o.provider||S.provider]||PROV.claude;
-  const useP=(o.images&&o.images.length&&!p.vision)?PROV.claude:p;
+  /* फ़ोटो हो और चुना हुआ AI फ़ोटो न समझता हो (जैसे Groq का GPT OSS) तो इस संदेश के लिए फ़ोटो समझने वाला दूसरा AI (Gemini/OpenAI) */
+  const useP=(o.images&&o.images.length&&!p.vision)?(Object.values(PROV).find(x=>x.custom&&x.vision)||PROV.claude):p;
   const t0=performance.now();
   const res=await useP.ask(o);
+  if(res&&typeof res==='object')res.prov=useP.id;
   if(o.track!==false){
     const chars=(typeof res==='object'&&res&&res.text)?res.text.length:0;
     track(o.kind==='msg'?'msg':'tool',{tier:o.tier||'default',prov:useP.id,ms:performance.now()-t0,chars});
@@ -1574,7 +1577,7 @@ async function runAssistant({voice=false}={}){
   ctrl=new AbortController();busy=true;liveText='';setSendIcon();paintFeed(true);
   const prov=PROV[S.provider]||PROV.claude;
   const t0=performance.now();let reply='',cut=false,err=null;
-  let wpre='',wsrc='',wextra='';
+  let wpre='',wsrc='',wextra='',usedProv='';
   try{
     if(plan){
       if(!voice)liveUpdate('🔎 इंटरनेट पर खोज रहा हूँ…');
@@ -1593,7 +1596,7 @@ async function runAssistant({voice=false}={}){
     const hist=historyForModel();
     if(wextra){const li=hist.map(x=>x.role).lastIndexOf('user');if(li>=0)hist[li]={...hist[li],content:wextra+'\n\n---\nयूज़र का सवाल: '+(typeof hist[li].content==='string'?hist[li].content:text)}}
     const r=await ai({turns:hist,system:sysPrompt({voice,web:!!wextra}),tier,effort:(S.deep&&tier==='complex')?'high':undefined,images:imgs,web:false,signal:ctrl.signal,kind:'msg',onText:wpre?(t=>liveUpdate(wpre+t)):liveUpdate});
-    reply=wpre+r.text+wsrc;cut=r.truncated;
+    reply=wpre+r.text+wsrc;cut=r.truncated;usedProv=r.prov||'';
   }catch(e){
     err=e;reply=(e&&e.text)||liveText||'';
   }
@@ -1602,7 +1605,8 @@ async function runAssistant({voice=false}={}){
   if(err&&!aborted&&!reply){
     cur.turns.push({id:uid(),role:'assistant',content:'⚠ '+errMsg(err),by:'',err:true,ts:Date.now()});
   }else if(reply){
-    const label=PROV[S.provider]&&PROV[S.provider].custom?prov.label:'Claude · '+(TIER_NAME[tier]||'');
+    const up=PROV[usedProv]||prov;
+    const label=up&&up.custom?up.label:'Claude · '+(TIER_NAME[tier]||'');
     cur.turns.push({id:uid(),role:'assistant',content:reply+(cut?'\n\n_(जवाब लंबाई की सीमा पर कट गया — “आगे बढ़ाओ” लिखें।)_':'')+(aborted?'\n\n_(रोका गया)_':''),by:label+' · '+((performance.now()-t0)/1000).toFixed(1)+' सेकंड',ts:Date.now(),voice});
   }
   cur.updated=Date.now();
