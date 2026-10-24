@@ -836,7 +836,7 @@ function makeOpenAI(c){
       if(o.json)sys+='\n\nकेवल वैध JSON लौटाओ, उसके बाहर कोई टेक्स्ट नहीं।';
       const msgs=(sys?[{role:'system',content:sys}]:[]).concat(turns);
       if(o.images&&o.images.length){
-        const imgs=o.images.slice(0,4);
+        const imgs=o.images.slice(0,c.maxImg||4);
         const per=Math.floor(520000/imgs.length);
         const urls=[];
         for(const b of imgs){try{urls.push(await visionDataUrl(b,per))}catch(e){throw {code:'image_rejected',message:ERRS.image_rejected}}}
@@ -2066,6 +2066,8 @@ SCREENS.s_model={render(node){
     </div>`)}
     ${lbl('कौन-सा AI इस्तेमाल हो')}
     ${card(provs.map(p=>`<div class="prow"><button class="ro grow" data-act="prov" data-v="${esc(p.id)}" role="radio" aria-checked="${S.provider===p.id}"><span class="rd${S.provider===p.id?' on':''}"></span><span class="tx"><span class="tt">${esc(p.label)}</span><span class="ds">${esc(p.desc)}</span></span></button>${p.custom?`<button class="mini" data-act="ptest" data-v="${esc(p.id)}" aria-label="कनेक्शन जाँचें">${ic('lightning',16)}</button><button class="mini" data-act="pdel" data-v="${esc(p.id)}" aria-label="हटाएँ">${ic('trash',16)}</button>`:`<span class="tag on">बिल्ट-इन</span>`}</div>`).join(''))}
+    ${lbl('Groq (मुफ़्त सीमा, बहुत तेज़)')}
+    ${card(`<div class="padi"><p class="note pad0">एक बटन में Groq के सभी 7 चैट मॉडल जुड़ जाएँगे: GPT OSS 120B/20B, Llama 3.3 70B, Llama 3.1 8B, Qwen 3.8 27B (फ़ोटो भी समझता है, एक बार में 3 तक), MiniMax M2.7 और Muse Spark। प्रीव्यू वाले मॉडल कभी बदल या बंद हो सकते हैं। Worker का वही APP_TOKEN अपने-आप इस्तेमाल होगा।</p><div class="sp12"></div><button class="btn" data-act="groqall">${ic('plus',18)} Groq के सभी मॉडल जोड़ें</button></div>`)}
     ${lbl('अपना मॉडल जोड़ें (OpenAI-जैसा API)')}
     ${card(`<div class="padi">
       ${field('cn','नाम',{ph:'जैसे: मेरा Qwen'})}${field('cu','Base URL',{ph:'https://मेरा-सर्वर.com/v1'})}${field('cm','मॉडल का नाम',{ph:'जैसे: qwen2.5-7b-instruct'})}${field('ck','API Key (ज़रूरत हो तो)',{type:'password',ph:'sk-…'})}${field('cim','इमेज बनाने वाला मॉडल (वैकल्पिक)',{ph:'जैसे: stable-diffusion-xl'})}${field('cim','इमेज-मॉडल का नाम (वैकल्पिक, चित्र बनाने के लिए)',{ph:'जैसे: sdxl'})}
@@ -2077,6 +2079,18 @@ SCREENS.s_model={render(node){
   wire(node,{
     act:{
       rg:t=>{const k=t.dataset.k;if(k==='tier')S.tier=t.dataset.v;else S.style=t.dataset.v;save();rgUpdate(t)},
+      groqall:()=>{
+        const g=(S.customs||[]).find(c=>/\/(gemini|openai|groq)\/v1\/?$/i.test(c.url||''));
+        if(!g){toast('पहले अपना Worker वाला मॉडल (Gemini) जुड़ा होना चाहिए',4000);return}
+        const base=g.url.replace(/\/(gemini|openai|groq)\/v1\/?$/i,'/groq/v1');
+        const L=[['Groq · GPT OSS 120B','openai/gpt-oss-120b',0],['Groq · GPT OSS 20B','openai/gpt-oss-20b',0],['Groq · Llama 3.3 70B','llama-3.3-70b-versatile',0],['Groq · Llama 3.1 8B (सबसे तेज़)','llama-3.1-8b-instant',0],['Groq · Qwen 3.8 27B (फ़ोटो भी, प्रीव्यू)','qwen/qwen3.8-27b',1],['Groq · MiniMax M2.7 (प्रीव्यू)','minimaxai/minimax-m2.7',0],['Groq · Muse Spark (प्रीव्यू)','meta-models/muse-spark-open',0]];
+        let n=0;
+        for(const [name,model,v] of L){
+          if(S.customs.some(c=>c.url===base&&c.model===model))continue;
+          S.customs.push({id:'c'+uid(),name,url:base,model,key:g.key||'',vision:!!v,maxImg:v?3:undefined});n++;
+        }
+        save();loadCustoms();draw();toast(n?n+' Groq मॉडल जुड़ गए — नीचे सूची में चुनें':'सभी Groq मॉडल पहले से जुड़े हैं',4000);
+      },
       prov:t=>{S.provider=t.dataset.v;save();draw();toast('अब यह AI जवाब देगा: '+PROV[S.provider].label)},
       pdel:t=>{S.customs=S.customs.filter(c=>c.id!==t.dataset.v);save();loadCustoms();draw()},
       ptest:async t=>{
