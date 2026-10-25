@@ -945,7 +945,9 @@ function sysPrompt({voice=false,extra='',web=false}={}){
    (खोजना है या नहीं, यह Gemini खुद तय करता है; खोजने पर जवाब में साफ़ लिखा आता है) */
 function needsWeb(t){
   t=String(t||'');if(t.length>500)return false;
-  return /(आज|अभी|ताज़ा|ताजा|आजकल|हाल ही|नवीनतम|नया|नई|न्यूज़|न्यूज|खबर|ख़बर|समाचार|कीमत|भाव|रेट|स्कोर|मैच|मौसम|चुनाव|रिज़ल्ट|रिजल्ट|नतीजा|वर्तमान|लेटेस्ट|कौन है|कौन हैं|कितना है|कब है|कब होगा|latest|today|tonight|current|news|price|score|weather|result|recent|right now|who is|who won|stock|rate)/i.test(t)||/20(2[4-9]|3\d)/.test(t);
+  return /(आज|अभी|ताज़ा|ताजा|आजकल|हाल ही|नवीनतम|नया|नई|न्यूज़|न्यूज|खबर|ख़बर|समाचार|कीमत|भाव|रेट|स्कोर|मैच|मौसम|चुनाव|रिज़ल्ट|रिजल्ट|नतीजा|वर्तमान|लेटेस्ट|कौन है|कौन हैं|कितना है|कब है|कब होगा|latest|today|tonight|current|news|price|score|weather|result|recent|right now|who is|who won|stock|rate|\bvs\.?\b|versus|match(es)?\b|fixtures?|line-?ups?|standings|points table|live\b|schedule|release date|\bipl\b|world cup|मैच|लाइव|बनाम|रिलीज़|रिलीज|शेयर|सेंसेक्स|निफ्टी|सोना|चाँदी|चांदी|पेट्रोल|डीज़ल|टीम)/i.test(t)||/20(2[4-9]|3\d)/.test(t)
+    /* छोटा संदेश जिसमें दो-तीन नाम (बड़े अक्षर वाले) हों, जैसे "Hull City Brentford" या "Elon Musk" — अक्सर ताज़ा जानकारी माँगता है */
+    ||(t.length<=60&&t.split(/\s+/).length<=6&&/\b[A-Z][a-z]+\s+[A-Z][a-z]+/.test(t)&&!/(what|how|why|explain|write|translate|define|meaning)/i.test(t)&&!/^\s*(hello|hi|hey|thanks?|thank you|good|namaste|ok)\b/i.test(t));
 }
 
 /* ================= इंटरनेट खोज (Tavily + Wikipedia, Worker के ज़रिए) =================
@@ -961,11 +963,11 @@ function searchPlan(t){
   const news=needsWeb(t);
   /* लिखने/बनाने/समझाने के काम में खोज की ज़रूरत नहीं (सिर्फ़ ताज़ा-खबर वाले शब्द हों तो ही) */
   const make=/(लिखो|लिखें|लिखिए|लिख दो|बनाओ|बनाइए|अनुवाद|translate|write|कविता|poem|निबंध|essay|कोड|code|सारांश|summar|समझाओ|समझाइए|हल करो|solve|\d+\s*[+\-*/×÷]\s*\d+)/i.test(t);
-  const hot0=/(खबर|ख़बर|समाचार|न्यूज़|न्यूज|news|आज|today|latest|ताज़ा|ताजा|अभी)/i.test(t);
+  const hot0=/(खबर|ख़बर|समाचार|न्यूज़|न्यूज|news|आज|today|latest|ताज़ा|ताजा|अभी|\bvs\.?\b|versus|match|live|score|मैच|लाइव|बनाम)/i.test(t);
   if(make&&!hot0)return null;
   const gk=/(क्या है|क्या होता|कौन था|कौन थे|कौन थी|कब हुआ|कब हुई|किसने|जीवनी|परिभाषा|what is|what are|who was|who is|history of|define|meaning of)/i.test(t);
   if(!news&&!gk)return null;
-  const hot=/(खबर|ख़बर|समाचार|न्यूज़|न्यूज|news|आज|today|latest|ताज़ा|ताजा|अभी)/i.test(t);
+  const hot=hot0;
   let p;
   if(hot||(news&&!gk))p={tavily:!!sr.tavily,wikipedia:false,topic:hot?'news':'general'};
   else if(gk&&!news)p={tavily:false,wikipedia:!!sr.wiki,topic:'general',fb:!!sr.tavily};
