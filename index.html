@@ -1109,7 +1109,7 @@ const CLOUD={
   ok(){return !!(S.voice&&S.voice.engine==='gemini'&&Date.now()>this.failUntil&&searchEndpoint())},
   unlock(){try{if(!this.ctx){const C=window.AudioContext||window.webkitAudioContext;if(!C)return;this.ctx=new C()}if(this.ctx.state==='suspended')this.ctx.resume()}catch(e){}},
   async fetchAudio(text,voice){
-    const ep=searchEndpoint();if(!ep)return null;
+    const ep=searchEndpoint();if(!ep||Date.now()<this.failUntil)return null;
     const ac=new AbortController();const tm=setTimeout(()=>ac.abort(),30000);
     try{
       const r=await fetch(ep.url.replace(/\/search$/,'/tts'),{method:'POST',signal:ac.signal,headers:{'Content-Type':'application/json',Authorization:'Bearer '+ep.key},body:JSON.stringify({text,voice:voice||S.voice.gvoice||'Kore'})});
@@ -1174,26 +1174,39 @@ const TTS={
     if(!('speechSynthesis' in window))return false;
     const plain=stripMd(text);if(!plain||plain.replace(/[\s.,!?।]/g,'').length<1)return false;
     const l=lang||(S.voice.lang==='auto'?(devaRatio(plain)>.3?'hi':'en'):S.voice.lang);
-    const u=new SpeechSynthesisUtterance(plain);u.lang=l==='en'?'en-IN':'hi-IN';u.rate=S.voice.speed||1;
-    const v=this.pick(l);if(v)u.voice=v;
-    const q=this.q;q.pend++;this.on=true;
-    const done=()=>{if(this.q!==q)return;q.pend--;if(q.pend<=0&&q.fin){this.on=false;q.cb&&q.cb()}};
-    const phone=()=>new Promise(res=>{u.onend=res;u.onerror=res;try{speechSynthesis.speak(u)}catch(e){res()}});
+    const q=this.q;
     if(CLOUD.ok()){
-      /* आवाज़ अभी से मँगवाओ, पर बजाओ क्रम से (पिछला वाक्य खत्म होने पर) */
-      const pf=CLOUD.fetchAudio(plain.slice(0,600));
-      q.chain=q.chain.then(async()=>{
-        if(q.dead)return;
-        const buf=await pf;if(q.dead)return;
-        if(buf)await CLOUD.play(buf,S.voice.speed||1);else await phone();
-      }).then(done,done);
+      /* मुफ़्त सीमा बचाने को वाक्य जोड़कर बड़े टुकड़ों में भेजो (पहला टुकड़ा छोटा, ताकि जल्दी बोलना शुरू हो) */
+      q.buf=((q.buf||'')+' '+plain).trim();q.lang=l;this.on=true;
+      if(q.buf.length>=(q.n?280:100))this.flushCloud();
       return true;
     }
+    const u=new SpeechSynthesisUtterance(plain);u.lang=l==='en'?'en-IN':'hi-IN';u.rate=S.voice.speed||1;
+    const v=this.pick(l);if(v)u.voice=v;
+    q.pend++;this.on=true;
+    const done=()=>{if(this.q!==q)return;q.pend--;if(q.pend<=0&&q.fin){this.on=false;q.cb&&q.cb()}};
     u.onend=done;u.onerror=done;
     try{speechSynthesis.speak(u)}catch(e){done()}
     return true;
   },
-  finish(cb){const q=this.q;q.fin=true;q.cb=cb;if(q.pend<=0){this.on=false;cb&&cb()}}
+  flushCloud(){
+    const q=this.q;const txt=(q.buf||'').trim();q.buf='';if(!txt)return;
+    const l=q.lang||'hi';
+    const parts=txt.match(/[\s\S]{1,560}(?:[।.!?]|\s|$)/g)||[txt];
+    parts.forEach(pt=>{
+      pt=pt.trim();if(!pt)return;
+      q.n=(q.n||0)+1;q.pend++;
+      const done=()=>{if(this.q!==q)return;q.pend--;if(q.pend<=0&&q.fin){this.on=false;q.cb&&q.cb()}};
+      const pf=CLOUD.fetchAudio(pt);
+      q.chain=q.chain.then(async()=>{
+        if(q.dead)return;
+        const buf=await pf;if(q.dead)return;
+        if(buf)await CLOUD.play(buf,S.voice.speed||1);
+        else await new Promise(res=>{try{const u=new SpeechSynthesisUtterance(pt);u.lang=l==='en'?'en-IN':'hi-IN';u.rate=S.voice.speed||1;const v=this.pick(l);if(v)u.voice=v;u.onend=res;u.onerror=res;speechSynthesis.speak(u)}catch(e){res()}});
+      }).then(done,done);
+    });
+  },
+  finish(cb){const q=this.q;if(q.buf)this.flushCloud();q.fin=true;q.cb=cb;if(q.pend<=0){this.on=false;cb&&cb()}}
 };
 function listen({lang,onResult,onEnd,onError}){
   if(window.ApnaAndroid&&window.ApnaAndroid.startListen){
