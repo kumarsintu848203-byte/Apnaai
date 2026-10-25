@@ -936,7 +936,7 @@ function sysPrompt({voice=false,extra='',web=false}={}){
     'सटीकता सबसे ज़रूरी है। पक्का पता न हो तो साफ़ कहो कि पक्का नहीं है। तथ्य, तारीख़, आँकड़े या स्रोत गढ़ो मत। गणित और तर्क के सवाल स्टेप-बाय-स्टेप हल करो और अंत में उत्तर एक लाइन में लिखो। सरकारी परीक्षा के सवाल में उत्तर के साथ संक्षिप्त कारण दो; अगर तथ्य बदल सकता है तो आधिकारिक किताब या साइट से जाँचने को कहो।',
     web?'इस सवाल के लिए ऐप ने तुम्हारे लिए इंटरनेट की खोज कर दी है और नतीजे यूज़र के संदेश में दिए हैं। इसलिए यह कभी मत कहो कि तुम्हारे पास इंटरनेट नहीं है; दिए गए नतीजों से जवाब दो।':'तुम्हारे पास इंटरनेट नहीं है, इसलिए ताज़ा घटनाओं के बारे में पक्का मत बोलो।',
     'गणित सादे टेक्स्ट में लिखो (जैसे x², √, ×, ÷, 3/4); LaTeX या $…$ का इस्तेमाल मत करो।',
-    voice?'यह जवाब आवाज़ में बोला जाएगा: छोटे, बोलचाल के वाक्य रखो; मार्कडाउन, सूची, कोड या इमोजी मत लिखो।':'ज़रूरत हो तब हल्का मार्कडाउन (सूची, बोल्ड, टेबल, कोड-ब्लॉक) इस्तेमाल करो।',
+    voice?'यह आमने-सामने की आवाज़ वाली बातचीत है: जैसे दोस्त से फ़ोन पर बात करते हैं वैसे बोलो। पहले वाक्य में ही सीधा जवाब दो, कुल 1-3 छोटे वाक्य रखो (यूज़र ज़्यादा विस्तार माँगे तभी लंबा), हर वाक्य बोलने में आसान हो। मार्कडाउन, सूची, लिंक, कोड, इमोजी या सिंबल मत लिखो; संख्याएँ और तारीख़ें बोलने वाले ढंग से लिखो। ज़रूरत हो तो आख़िर में एक छोटा सवाल पूछकर बातचीत आगे बढ़ाओ।':'ज़रूरत हो तब हल्का मार्कडाउन (सूची, बोल्ड, टेबल, कोड-ब्लॉक) इस्तेमाल करो।',
     S.name?'यूज़र का नाम: '+S.name+' (हर बार नाम मत दोहराओ)।':'',
     'आज की तारीख़: '+new Date().toLocaleDateString('hi-IN',{dateStyle:'full'})+'।',
     extra
@@ -1608,8 +1608,8 @@ async function addAtt(files){
   }
   paintAtts();toast(pending.length?pending.length+' फ़ाइल जुड़ी':'कोई फ़ाइल नहीं जुड़ी');
 }
-function historyForModel(){
-  let budget=150000;const out=[];
+function historyForModel(voice){
+  let budget=voice?12000:150000;const out=[];
   for(let i=cur.turns.length-1;i>=0;i--){
     const t=cur.turns[i];
     let c=t.content;
@@ -1659,7 +1659,7 @@ async function runAssistant({voice=false}={}){
         if(!voice)wpre='⚠ *इंटरनेट खोज नहीं हो सकी ('+((e&&e.message)||'गड़बड़')+'), इसलिए यह मेरी पुरानी जानकारी से जवाब है — ताज़ा नहीं हो सकता।*\n\n';
       }
     }
-    const hist=historyForModel();
+    const hist=historyForModel(voice);
     if(wextra){const li=hist.map(x=>x.role).lastIndexOf('user');if(li>=0)hist[li]={...hist[li],content:wextra+'\n\n---\nयूज़र का सवाल: '+(typeof hist[li].content==='string'?hist[li].content:text)}}
     const r=await ai({turns:hist,system:sysPrompt({voice,web:!!wextra}),tier,effort:(S.deep&&tier==='complex')?'high':undefined,images:imgs,web:false,signal:ctrl.signal,kind:'msg',onText:wpre?(t=>liveUpdate(wpre+t)):liveUpdate});
     reply=wpre+r.text+wsrc;cut=r.truncated;usedProv=r.prov||'';
