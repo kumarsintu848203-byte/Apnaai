@@ -348,6 +348,20 @@ table.grid{border-collapse:collapse;min-width:100%}
 @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-5px)}}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 @keyframes ring{0%{box-shadow:0 0 0 0 rgba(255,133,133,.55)}100%{box-shadow:0 0 0 22px rgba(255,133,133,0)}}
+.v-tx{flex:1;min-height:0;overflow-y:auto;padding:6px 24px;display:flex;flex-direction:column;gap:12px;-webkit-overflow-scrolling:touch}
+.screen.voice.tx .v-s{display:none}
+.screen.voice .v-orb{flex:none;height:0;overflow:hidden}
+.v-me{align-self:flex-end;max-width:82%;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:8px 14px;font-size:1.02rem}
+.v-ai{font-size:1.28rem;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.screen.voice>*:not(.v-glow){position:relative;z-index:1}
+.v-glow{position:absolute;left:-15%;right:-15%;bottom:-6%;height:52%;pointer-events:none;z-index:0;opacity:.75;filter:blur(26px);transform-origin:50% 100%;transition:opacity .7s;background:radial-gradient(ellipse 72% 62% at 50% 90%,rgba(255,138,61,.9),rgba(232,87,46,.42) 42%,transparent 78%)}
+.v-glow.listen{opacity:.9;background:radial-gradient(ellipse 72% 62% at 50% 90%,rgba(94,224,200,.9),rgba(36,181,159,.42) 42%,transparent 78%);animation:vglow 2.6s ease-in-out infinite}
+.v-glow.think{opacity:.95;background:radial-gradient(ellipse 72% 62% at 50% 90%,rgba(255,200,90,.9),rgba(255,138,61,.42) 42%,transparent 78%);animation:vglow 1.1s ease-in-out infinite}
+.v-glow.speak{opacity:1;animation:vglow 1.5s ease-in-out infinite,vhue 7s linear infinite}
+@keyframes vglow{0%,100%{transform:scale(1,.9)}50%{transform:scale(1.08,1.12)}}
+@keyframes vhue{from{filter:blur(26px) hue-rotate(0deg)}to{filter:blur(26px) hue-rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.v-glow{animation:none!important}}
+.ib.on{color:var(--accent);background:var(--accsoft)}
 </style>
 </head><body>
 <div id="app"></div>
@@ -1873,14 +1887,25 @@ SCREENS.more={from:'right',cls:'more',render(node){
 let voiceOut=true;
 SCREENS.voice={from:'bottom',cls:'voice',render(node){
   node.innerHTML=`
+  <div class="v-glow" id="vglow" aria-hidden="true"></div>
   <div class="v-top"><button class="ib sq" data-back aria-label="वापस">${ic('back',24)}</button><button class="ib sq" data-go="s_voice" aria-label="और विकल्प">${ic('dotsh',22)}</button></div>
   <div class="v-t"><div class="v-h" id="vh">बात शुरू करें</div><div class="v-s" id="vs">माइक अपने-आप चालू रहता है — बस बोलिए, या नीचे लिखिए</div></div>
-  <div class="v-orb" data-act="vorb"><div class="orb-o big"><div class="orb" id="vorb"></div></div></div>
+  <div class="v-tx" id="vtx" data-act="vorb"><div class="v-me" id="vme" hidden></div><div class="v-ai" id="vai"></div></div>
+  <div class="v-orb"><div class="orb" id="vorb" hidden></div></div>
   <div class="v-st" id="vst">AI तैयार है</div>
   <div class="v-btns"><button class="cb" data-act="vmic" id="vmic" aria-label="माइक">${ic('mic',26)}</button><button class="cb" data-act="vspk" id="vspk" aria-label="आवाज़">${ic('volume',26)}</button><button class="cb red" data-act="vend" aria-label="बंद करें">${ic('close',26)}</button></div>
   <div class="v-in"><button class="cb sm" data-act="vplus" aria-label="जोड़ें">${ic('plus',22)}</button><div class="v-box"><input id="vtxt" placeholder="कुछ भी पूछें" aria-label="कुछ भी पूछें" autocomplete="off"><button class="send sm" data-act="vsend" aria-label="भेजें">${ic('send',20)}</button></div></div>`;
   const $h=$('#vh',node),$s=$('#vs',node),$st=$('#vst',node),orb=$('#vorb',node);
-  const state=(k,h,s,st)=>{orb.className='orb '+k;if(h)$h.textContent=h;if(s!=null)$s.textContent=s;$st.textContent=st};
+  const $me=$('#vme',node),$ai=$('#vai',node),$tx=$('#vtx',node);
+  const setTx=(me,ai)=>{
+    if(me!=null){$me.textContent=me;$me.hidden=!me}
+    if(ai!=null){$ai.textContent=ai}
+    node.classList.toggle('tx',!!($me.textContent||$ai.textContent));
+    $tx.scrollTop=$tx.scrollHeight;
+  };
+  const plainTx=t=>String(t||'').replace(/```[\s\S]*?```/g,' ').replace(/[*_#`>|]/g,'').replace(/\[([^\]]*)\]\([^)]*\)/g,'$1').replace(/\s+/g,' ').trim();
+  const $g=$('#vglow',node);
+  const state=(k,h,s,st)=>{orb.className='orb '+k;$g.className='v-glow '+k;if(h)$h.textContent=h;if(s!=null)$s.textContent=s;$st.textContent=st};
   let r=null,vrec=null,auto=true,empties=0,timer=null,alive=true;
   const IDLE=()=>state('','बात शुरू करें','माइक बंद है — दबाकर फिर चालू करें','AI तैयार है');
   const again=(ms=500)=>{clearTimeout(timer);if(!auto||!alive)return;timer=setTimeout(()=>{const t=topRec();if(auto&&alive&&!vrec&&!busy&&!TTS.on&&t&&t.node===node)startL()},ms)};
@@ -1889,7 +1914,7 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
     TTS.stop();$('#vmic',node).classList.add('on');state('listen','मैं सुन रहा हूँ','बोलिए, मैं आपकी बात सुन रहा हूँ…','सुन रहा हूँ');
     let last='',fin2=false;
     vrec=listen({
-      onResult:(tx,fin)=>{last=tx;$s.textContent=tx;if(fin){fin2=true;empties=0;stopL();ask(tx)}},
+      onResult:(tx,fin)=>{last=tx;$s.textContent=tx;setTx(tx,'');if(fin){fin2=true;empties=0;stopL();ask(tx)}},
       onEnd:()=>{if(!vrec)return;stopL();
         if(last&&!fin2){empties=0;ask(last);return}
         empties++;
@@ -1908,12 +1933,13 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
     stopL();TTS.stop();
     const turn={id:uid(),role:'user',content:text,ts:Date.now(),voice:true};
     cur.turns.push(turn);cur.updated=Date.now();
-    state('think','सोच रहा हूँ…','आपने कहा: '+text.slice(0,90),'जवाब बन रहा है');
+    setTx(text,'');state('think','सोच रहा हूँ…','आपने कहा: '+text.slice(0,90),'जवाब बन रहा है');
     /* बहता बोलना: जवाब बनते-बनते पूरे वाक्य बोलना शुरू कर दो */
     let spoken=0,began=false;
     if(voiceOut){
       TTS.begin();
       voiceHook=txt=>{
+        setTx(null,plainTx(txt));
         const rest=txt.slice(spoken);const re=/[\s\S]*?(?:[।!?.](?=\s)|\n)/g;let m,last=0;
         while((m=re.exec(rest))){
           last=re.lastIndex;
@@ -1923,7 +1949,7 @@ SCREENS.voice={from:'bottom',cls:'voice',render(node){
       };
     }
     const reply=await runAssistant({voice:true});
-    voiceHook=null;
+    voiceHook=null;if(reply)setTx(null,plainTx(reply));
     const last=cur.turns[cur.turns.length-1];
     if(!reply||(last&&last.err)){TTS.stop();state('','कुछ गड़बड़ हुई',last&&last.content||'फिर कोशिश करें','AI तैयार है');again(2500);return}
     if(voiceOut){
