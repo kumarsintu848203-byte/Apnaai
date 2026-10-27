@@ -864,7 +864,7 @@ function makeOpenAI(c){
     if(d&&d.b64_json)return 'data:image/png;base64,'+d.b64_json;if(d&&d.url)return d.url;
     throw {code:'bad',message:'इमेज सर्वर से तस्वीर नहीं मिली।'};
   }}:{};
-  return{id:c.id,label:c.name,desc:c.model+' · '+c.url+(c.imgModel?' · इमेज: '+c.imgModel:''),vision:visionOk,custom:true,...extra,
+  return{id:c.id,label:c.name,model:c.model,url:c.url,desc:c.model+' · '+c.url+(c.imgModel?' · इमेज: '+c.imgModel:''),vision:visionOk,custom:true,...extra,
     async ask(o){
       const base=c.url.replace(/\/+$/,'');
       const turns=turnsOf(o);
@@ -945,6 +945,7 @@ function imgProvider(){
   return makeOpenAI(Object.assign({},c,{id:'pollimg',name:'Pollinations',url:c.url.replace(/\/(gemini|openai)\/v1\/?$/i,'/pollinations/v1'),imgModel:POLL_IMG_MODEL}));
 }
 function loadCustoms(){Object.keys(PROV).forEach(k=>{if(PROV[k].custom)delete PROV[k]});S.customs.forEach(c=>regProvider(makeOpenAI(c)));if(!PROV[S.provider]||(S.provider==='claude'&&!window.claude&&S.customs.length)){S.provider=window.claude?'claude':(S.customs[0]?S.customs[0].id:'');save()}}
+if(S.tier!=='auto'){S.tier='auto';save()}
 loadCustoms();
 
 const ERRS={
@@ -1076,18 +1077,71 @@ function chooseTier(text){
 const TIER_NAME={quick:'तेज़',default:'संतुलित',complex:'गहरा'};
 
 /* सभी AI कॉल यहीं से: provider चुनकर चलाता है */
-async function ai(o){
-  const p=PROV[o.provider||S.provider]||PROV.claude;
-  /* फ़ोटो हो और चुना हुआ AI फ़ोटो न समझता हो (जैसे Groq का GPT OSS) तो इस संदेश के लिए फ़ोटो समझने वाला दूसरा AI (Gemini/OpenAI) */
-  const useP=(o.images&&o.images.length&&!p.vision)?(Object.values(PROV).find(x=>x.custom&&x.vision)||PROV.claude):p;
+/* ================= Apna AI: एक ही मॉडल, अंदर सब मॉडल ऑटो ================= */
+const COOL={};   /* मॉडल-id -> कब तक आराम पर (ms टाइमस्टैम्प) */
+const poolAll=()=>Object.values(PROV).filter(p=>!(p.builtin&&!window.claude));
+function modelTraits(p){
+  const n=((p.model||'')+' '+(p.label||'')).toLowerCase();
+  const fast=/instant|\b8b|\blite\b|flash-lite|(^|[\s\-_\/])mini\b|\bsmall\b|\b20b|turbo/.test(n);
+  const gem=/\/gemini\/v1/i.test(p.url||'')||p.id==='claude';
+  const smart=!fast&&(gem||/120b|70b|pro|large|405b|32b|27b|opus|sonnet/.test(n));
+  return {fast,smart,gem,vision:!!p.vision};
+}
+function coolInfo(p){const u=COOL[p.id]||0;return u>Date.now()?u:0}
+function autoCands(o){
+  let L=poolAll().map((p,i)=>({p,i})).filter(x=>(COOL[x.p.id]||0)<Date.now()+10800000);   /* जिसकी Worker में key ही नहीं, उसे छोड़ दो */
+  if(!L.length)L=poolAll().map((p,i)=>({p,i}));
+  if(o.images&&o.images.length){const v=L.filter(x=>x.p.vision);if(v.length)L=v}
+  const tier=o.tier||'default';
+  const rank=p=>{const t=modelTraits(p);
+    if(o.web&&t.gem)return -1;
+    if(tier==='quick')return t.fast?(/instant|\b8b|lite/i.test((p.model||'')+' '+(p.label||''))?0:.5):(t.smart?2:1);
+    if(tier==='complex')return t.smart?0:(t.fast?2:1);
+    return t.gem?0:(t.smart?1:(t.fast?3:2));
+  };
+  L.sort((a,b)=>rank(a.p)-rank(b.p)||a.i-b.i);
+  const ok=L.filter(x=>!coolInfo(x.p)),rest=L.filter(x=>coolInfo(x.p)).sort((a,b)=>coolInfo(a.p)-coolInfo(b.p));
+  return ok.concat(rest).map(x=>x.p);
+}
+function coolFor(e){
+  const code=String(e&&e.code||'');
+  if(/इस सर्वर पर चालू नहीं/.test(String(e&&e.message||'')))return 21600000;   /* Worker में इस सेवा की key ही नहीं */
+  if(code==='http_429')return 300000;
+  if(code==='http_404')return 1800000;
+  if(code==='http_401'||code==='http_403')return 900000;
+  if(code==='http_400')return 120000;
+  return 45000;
+}
+async function aiOne(p,o){
   const t0=performance.now();
-  const res=await useP.ask(o);
-  if(res&&typeof res==='object')res.prov=useP.id;
+  const res=await p.ask(o);
+  if(res&&typeof res==='object')res.prov=p.id;
   if(o.track!==false){
     const chars=(typeof res==='object'&&res&&res.text)?res.text.length:0;
-    track(o.kind==='msg'?'msg':'tool',{tier:o.tier||'default',prov:useP.id,ms:performance.now()-t0,chars});
+    track(o.kind==='msg'?'msg':'tool',{tier:o.tier||'default',prov:p.id,ms:performance.now()-t0,chars});
   }
   return res;
+}
+async function ai(o){
+  if(o.provider&&PROV[o.provider])return aiOne(PROV[o.provider],o);
+  const cands=autoCands(o);
+  if(!cands.length)return aiOne(PROV.claude,o);
+  let first=null,last=null,all429=true;
+  for(const p of cands){
+    try{
+      const r=await aiOne(p,o);
+      delete COOL[p.id];
+      return r;
+    }catch(e){
+      const code=String(e&&e.code||'');
+      if(code==='cancelled'||code==='image_rejected')throw e;
+      last=e;if(!first)first=e;
+      if(code!=='http_429')all429=false;
+      const ms=coolFor(e);if(ms)COOL[p.id]=Date.now()+ms;
+    }
+  }
+  if(all429&&cands.length>1)throw {code:'http_429',message:'सभी AI मॉडल की मुफ़्त सीमा अभी पूरी है। थोड़ी देर (कुछ मिनट) बाद फिर कोशिश करें।'};
+  throw first||last;
 }
 const aiText=async o=>(await ai(o)).text;
 const aiJSON=o=>ai({...o,json:true});
@@ -1721,7 +1775,7 @@ async function runAssistant({voice=false}={}){
     cur.turns.push({id:uid(),role:'assistant',content:'⚠ '+errMsg(err),by:'',err:true,ts:Date.now()});
   }else if(reply){
     const up=PROV[usedProv]||prov;
-    const label=up&&up.custom?up.label:'Claude · '+(TIER_NAME[tier]||'');
+    const label='Apna AI · '+(up&&up.custom?up.label:'Claude '+(TIER_NAME[tier]||''));
     cur.turns.push({id:uid(),role:'assistant',content:reply+(cut?'\n\n_(जवाब लंबाई की सीमा पर कट गया — “आगे बढ़ाओ” लिखें।)_':'')+(aborted?'\n\n_(रोका गया)_':''),by:label+' · '+((performance.now()-t0)/1000).toFixed(1)+' सेकंड',ts:Date.now(),voice});
   }
   cur.updated=Date.now();
@@ -2304,19 +2358,18 @@ SCREENS.s_voice={render(node){
 SCREENS.s_model={render(node){
   const draw=()=>{
     const provs=Object.values(PROV).filter(p=>!(p.builtin&&!window.claude));
-    screenPaint(node,'AI मॉडल',`${intro('चुनें कि AI कैसे जवाब दे और कौन-सा मॉडल इस्तेमाल करे।')}
+    screenPaint(node,'AI मॉडल',`${intro('Apna AI अपने-आप सवाल के हिसाब से सही मॉडल चुनता है। कोई मॉडल रुक जाए या उसकी मुफ़्त सीमा पूरी हो जाए तो बिना बताए अगले मॉडल पर चला जाता है।')}
     ${card(`<div class="padi">
-      ${rg('tier','जवाब देने वाला मॉडल',[['auto','Auto — अपने-आप मॉडल चुनें'],['fast','Fast — जल्दी जवाब'],['smart','Smart — कठिन सवालों के लिए']],S.tier)}
-      ${dv}${rg('style','जवाब का तरीका',[['short','Short — छोटा जवाब'],['balanced','Balanced — सामान्य जवाब'],['detailed','Detailed — विस्तार से']],S.style)}
+      ${rg('style','जवाब का तरीका',[['short','Short — छोटा जवाब'],['balanced','Balanced — सामान्य जवाब'],['detailed','Detailed — विस्तार से']],S.style)}
       ${dv}<div class="tt pb">अन्य विकल्प</div>
-      ${ck('srch','इंटरनेट खोज (ज़रूरत पड़ने पर अपने-आप)','ताज़ा खबर, कीमत, स्कोर और GK पर AI खुद खोजता है और जवाब के नीचे स्रोत-लिंक दिखाता है। चैट के 🌐 बटन से भी चालू/बंद होता है।',!!(S.search&&S.search.on))}
+      ${ck('srch','इंटरनेट खोज (ज़रूरत पड़ने पर अपने-आप)','ताज़ा खबर, कीमत, स्कोर और GK पर AI खुद खोजता है और जवाब के नीचे स्रोत-लिंक दिखाता है।',!!(S.search&&S.search.on))}
       ${ck('stav','  ↳ Tavily वेब-खोज','मुफ़्त: 1,000 खोज/महीना। चाबी Worker में है।',!!(S.search&&S.search.tavily))}
       ${ck('swik','  ↳ Wikipedia','मुफ़्त, चाबी नहीं चाहिए। GK, इतिहास, विज्ञान के लिए।',!!(S.search&&S.search.wiki))}
       ${ck('deep','कठिन सवालों पर अधिक सोच-विचार','गणित, तर्क और कोड के सवालों पर सबसे सक्षम मॉडल',S.deep)}
       ${ck('verify','जवाब को दोबारा जाँचना','हर लंबे जवाब को दूसरी बार जाँचा जाता है (समय और इस्तेमाल दोगुना)',S.verify)}
     </div>`)}
-    ${lbl('कौन-सा AI इस्तेमाल हो')}
-    ${card(provs.map(p=>`<div class="prow"><button class="ro grow" data-act="prov" data-v="${esc(p.id)}" role="radio" aria-checked="${S.provider===p.id}"><span class="rd${S.provider===p.id?' on':''}"></span><span class="tx"><span class="tt">${esc(p.label)}</span><span class="ds">${esc(p.desc)}</span></span></button>${p.custom?`<button class="mini" data-act="ptest" data-v="${esc(p.id)}" aria-label="कनेक्शन जाँचें">${ic('lightning',16)}</button><button class="mini" data-act="pdel" data-v="${esc(p.id)}" aria-label="हटाएँ">${ic('trash',16)}</button>`:`<span class="tag on">बिल्ट-इन</span>`}</div>`).join(''))}
+    ${lbl('Apna AI के अंदर के मॉडल')}
+    ${card(`<div class="padi"><p class="note pad0">नीचे के सारे मॉडल एक ही “Apna AI” हैं। आपको कोई मॉडल चुनना नहीं पड़ता — ऐप ख़ुद चुनता है। नया मॉडल जोड़ेंगे तो वह भी अपने-आप इसमें शामिल हो जाएगा।</p></div>`+provs.map(p=>{const cu=coolInfo(p);const mins=cu?Math.max(1,Math.ceil((cu-Date.now())/60000)):0;return `<div class="prow"><div class="grow"><span class="tx"><span class="tt">${esc(p.label)}</span><span class="ds">${esc(p.desc)}</span></span></div>${cu?`<span class="tag">${mins>180?'Worker में key नहीं':'आराम पर · '+mins+' मिनट'}</span>`:`<span class="tag on">चालू</span>`}${p.custom?`<button class="mini" data-act="ptest" data-v="${esc(p.id)}" aria-label="कनेक्शन जाँचें">${ic('lightning',16)}</button><button class="mini" data-act="pdel" data-v="${esc(p.id)}" aria-label="हटाएँ">${ic('trash',16)}</button>`:`<span class="tag on">बिल्ट-इन</span>`}</div>`}).join(''))}
     ${lbl('Groq (मुफ़्त सीमा, बहुत तेज़)')}
     ${card(`<div class="padi"><p class="note pad0">एक बटन में Groq के सभी 7 चैट मॉडल जुड़ जाएँगे: GPT OSS 120B/20B, Llama 3.3 70B, Llama 3.1 8B, Qwen 3.8 27B (फ़ोटो भी समझता है, एक बार में 3 तक), MiniMax M2.7 और Muse Spark। प्रीव्यू वाले मॉडल कभी बदल या बंद हो सकते हैं। Worker का वही APP_TOKEN अपने-आप इस्तेमाल होगा।</p><div class="sp12"></div><button class="btn" data-act="groqall">${ic('plus',18)} Groq के सभी मॉडल जोड़ें</button></div>`)}
     ${lbl('अपना मॉडल जोड़ें (OpenAI-जैसा API)')}
@@ -2340,9 +2393,8 @@ SCREENS.s_model={render(node){
           if(S.customs.some(c=>c.url===base&&c.model===model))continue;
           S.customs.push({id:'c'+uid(),name,url:base,model,key:g.key||'',vision:!!v,maxImg:v?3:undefined});n++;
         }
-        save();loadCustoms();draw();toast(n?n+' Groq मॉडल जुड़ गए — नीचे सूची में चुनें':'सभी Groq मॉडल पहले से जुड़े हैं',4000);
+        save();loadCustoms();draw();toast(n?n+' Groq मॉडल जुड़ गए — अब ये भी Apna AI में अपने-आप चलेंगे':'सभी Groq मॉडल पहले से जुड़े हैं',4000);
       },
-      prov:t=>{S.provider=t.dataset.v;save();draw();toast('अब यह AI जवाब देगा: '+PROV[S.provider].label)},
       pdel:t=>{S.customs=S.customs.filter(c=>c.id!==t.dataset.v);save();loadCustoms();draw()},
       ptest:async t=>{
         const p=PROV[t.dataset.v];if(!p)return;toast('जाँच रहा हूँ…',1800);
@@ -2352,7 +2404,7 @@ SCREENS.s_model={render(node){
         const name=$('#cn',node).value.trim(),url=$('#cu',node).value.trim(),model=$('#cm',node).value.trim(),key=$('#ck',node).value.trim(),imgModel=$('#cim',node).value.trim();
         if(!name||!/^https?:\/\/\S+$/.test(url)||!model){toast('नाम, सही Base URL (http/https) और मॉडल का नाम भरें');return}
         const c={id:'c'+uid(),name,url,model,key,imgModel:$('#cim',node).value.trim()};
-        S.customs.push(c);S.provider=c.id;save();loadCustoms();draw();toast('मॉडल जुड़ गया: '+name);
+        S.customs.push(c);S.provider=c.id;save();loadCustoms();draw();toast('मॉडल जुड़ गया: '+name+' — अब यह Apna AI में अपने-आप शामिल है');
       }
     },
     chg:{srch:t=>{S.search.on=t.checked;save()},stav:t=>{S.search.tavily=t.checked;save()},swik:t=>{S.search.wiki=t.checked;save()},deep:t=>{S.deep=t.checked;save()},verify:t=>{S.verify=t.checked;save()}}
