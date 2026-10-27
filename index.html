@@ -378,10 +378,11 @@ table.grid{border-collapse:collapse;min-width:100%}
 .screen.voice .cb.white{background:#fff;color:#111}
 .screen.voice .cb.off{opacity:.5}
 /* चैट स्क्रीन: पूरी स्क्रीन पर चैट; ऊपर की पट्टी और नीचे का बॉक्स चैट के ऊपर तैरते हैं */
-.screen.home>.home-h{position:absolute;top:0;left:0;right:0;z-index:6;padding-top:calc(10px + env(safe-area-inset-top,0px));padding-bottom:22px;background:linear-gradient(to bottom,var(--bg) 52%,transparent)}
-.screen.home>.comp-w{position:absolute;left:0;right:0;bottom:0;z-index:6;padding-top:26px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,var(--bg) 60%,transparent)}
+.screen.home{background-color:var(--chatbg);background-image:var(--chatimg);background-size:cover;background-position:center}
+.screen.home>.home-h{position:absolute;top:0;left:0;right:0;z-index:6;padding-top:calc(10px + env(safe-area-inset-top,0px));padding-bottom:8px;background:none}
+.screen.home>.comp-w{position:absolute;left:0;right:0;bottom:0;z-index:6;padding-top:6px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));background:none}
 .screen.home .comp{background:color-mix(in srgb,var(--card) 90%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 6px 24px rgba(0,0,0,.22)}
-.screen.home>.feed{position:absolute;inset:0;padding-top:calc(78px + env(safe-area-inset-top,0px));padding-bottom:calc(var(--compH,130px) + 18px);padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
+.screen.home>.feed{background:none;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 calc(62px + env(safe-area-inset-top,0px)),#000 calc(100% - var(--compH,130px) - 8px),transparent calc(100% - var(--compH,130px) + 34px));mask-image:linear-gradient(to bottom,transparent 0,#000 calc(62px + env(safe-area-inset-top,0px)),#000 calc(100% - var(--compH,130px) - 8px),transparent calc(100% - var(--compH,130px) + 34px));position:absolute;inset:0;padding-top:calc(78px + env(safe-area-inset-top,0px));padding-bottom:calc(var(--compH,130px) + 18px);padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
 .screen.home>.feed::-webkit-scrollbar{display:none}
 </style>
 </head><body>
@@ -1589,7 +1590,7 @@ function openChat(c){
 const homeEl=()=>NAV[0]&&NAV[0].node;
 function heroHTML(){
   const reminder=(S.notif.study&&S.study.last!==dayKey())?`<button class="remind" data-go="t_study">${ic('cap',18)}<span>आज का अभ्यास अभी बाकी है</span>${ic('chev',16)}</button>`:'';
-  return `<div class="hero"><div class="orb-o"><div class="orb"></div></div><div class="hero-t"><div class="hello">नमस्ते${S.name?', '+esc(S.name):''}!</div><div class="hello-s">आज मैं आपकी क्या मदद करूँ?</div></div>${reminder}</div>`;
+  return `<div class="hero"><div class="hero-t"><div class="hello">नमस्ते${S.name?', '+esc(S.name):''}!</div><div class="hello-s">आज मैं आपकी क्या मदद करूँ?</div></div>${reminder}</div>`;
 }
 function turnHTML(t,i,last){
   if(t.role==='user'){
