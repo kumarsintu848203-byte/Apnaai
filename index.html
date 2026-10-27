@@ -384,6 +384,10 @@ table.grid{border-collapse:collapse;min-width:100%}
 .screen.home .comp{background:color-mix(in srgb,var(--card) 90%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 6px 24px rgba(0,0,0,.22)}
 .screen.home>.feed{background:none;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 calc(62px + env(safe-area-inset-top,0px)),#000 calc(100% - var(--compH,130px) - 8px),transparent calc(100% - var(--compH,130px) + 34px));mask-image:linear-gradient(to bottom,transparent 0,#000 calc(62px + env(safe-area-inset-top,0px)),#000 calc(100% - var(--compH,130px) - 8px),transparent calc(100% - var(--compH,130px) + 34px));position:absolute;inset:0;padding-top:calc(78px + env(safe-area-inset-top,0px));padding-bottom:calc(var(--compH,130px) + 18px);padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
 .screen.home>.feed::-webkit-scrollbar{display:none}
+.mcard{padding:14px 12px 10px 14px;gap:12px}
+.mic{width:48px;height:48px;border-radius:14px;background:var(--accsoft);color:var(--acct);display:grid;place-items:center;flex:none}
+.btn.mgo{margin:16px 0 4px}
+#minner{border-top:1px solid var(--line)}
 </style>
 </head><body>
 <div id="app"></div>
@@ -1092,7 +1096,7 @@ function autoCands(o){
   let L=poolAll().map((p,i)=>({p,i})).filter(x=>(COOL[x.p.id]||0)<Date.now()+10800000);   /* जिसकी Worker में key ही नहीं, उसे छोड़ दो */
   if(!L.length)L=poolAll().map((p,i)=>({p,i}));
   if(o.images&&o.images.length){const v=L.filter(x=>x.p.vision);if(v.length)L=v}
-  const tier=o.tier||'default';
+  const tier=(o.images&&o.images.length&&o.tier==='quick')?'default':(o.tier||'default');   /* फ़ोटो में गुणवत्ता पहले */
   const rank=p=>{const t=modelTraits(p);
     if(o.web&&t.gem)return -1;
     if(tier==='quick')return t.fast?(/instant|\b8b|lite/i.test((p.model||'')+' '+(p.label||''))?0:.5):(t.smart?2:1);
@@ -1124,6 +1128,7 @@ async function aiOne(p,o){
 }
 async function ai(o){
   if(o.provider&&PROV[o.provider])return aiOne(PROV[o.provider],o);
+  if(o.images&&o.images.length&&o.tier==='quick')o=Object.assign({},o,{tier:'default'});   /* फ़ोटो में पूरा मॉडल */
   const cands=autoCands(o);
   if(!cands.length)return aiOne(PROV.claude,o);
   let first=null,last=null,all429=true;
@@ -2356,6 +2361,7 @@ SCREENS.s_voice={render(node){
 
 /* ================= AI मॉडल ================= */
 SCREENS.s_model={render(node){
+  let innerOpen=false;
   const draw=()=>{
     const provs=Object.values(PROV).filter(p=>!(p.builtin&&!window.claude));
     screenPaint(node,'AI मॉडल',`${intro('Apna AI अपने-आप सवाल के हिसाब से सही मॉडल चुनता है। कोई मॉडल रुक जाए या उसकी मुफ़्त सीमा पूरी हो जाए तो बिना बताए अगले मॉडल पर चला जाता है।')}
@@ -2369,10 +2375,12 @@ SCREENS.s_model={render(node){
       ${ck('verify','जवाब को दोबारा जाँचना','हर लंबे जवाब को दूसरी बार जाँचा जाता है (समय और इस्तेमाल दोगुना)',S.verify)}
     </div>`)}
     ${lbl('Apna AI के अंदर के मॉडल')}
-    ${card(`<div class="padi"><p class="note pad0">नीचे के सारे मॉडल एक ही “Apna AI” हैं। आपको कोई मॉडल चुनना नहीं पड़ता — ऐप ख़ुद चुनता है। नया मॉडल जोड़ेंगे तो वह भी अपने-आप इसमें शामिल हो जाएगा।</p></div>`+provs.map(p=>{const cu=coolInfo(p);const mins=cu?Math.max(1,Math.ceil((cu-Date.now())/60000)):0;return `<div class="prow"><div class="grow"><span class="tx"><span class="tt">${esc(p.label)}</span><span class="ds">${esc(p.desc)}</span></span></div>${cu?`<span class="tag">${mins>180?'Worker में key नहीं':'आराम पर · '+mins+' मिनट'}</span>`:`<span class="tag on">चालू</span>`}${p.custom?`<button class="mini" data-act="ptest" data-v="${esc(p.id)}" aria-label="कनेक्शन जाँचें">${ic('lightning',16)}</button><button class="mini" data-act="pdel" data-v="${esc(p.id)}" aria-label="हटाएँ">${ic('trash',16)}</button>`:`<span class="tag on">बिल्ट-इन</span>`}</div>`}).join(''))}
-    ${lbl('Groq (मुफ़्त सीमा, बहुत तेज़)')}
-    ${card(`<div class="padi"><p class="note pad0">एक बटन में Groq के सभी 7 चैट मॉडल जुड़ जाएँगे: GPT OSS 120B/20B, Llama 3.3 70B, Llama 3.1 8B, Qwen 3.8 27B (फ़ोटो भी समझता है, एक बार में 3 तक), MiniMax M2.7 और Muse Spark। प्रीव्यू वाले मॉडल कभी बदल या बंद हो सकते हैं। Worker का वही APP_TOKEN अपने-आप इस्तेमाल होगा।</p><div class="sp12"></div><button class="btn" data-act="groqall">${ic('plus',18)} Groq के सभी मॉडल जोड़ें</button></div>`)}
-    ${lbl('अपना मॉडल जोड़ें (OpenAI-जैसा API)')}
+    ${card(`<div class="prow mcard"><div class="mic">${ic('cpu',26)}</div><div class="grow"><span class="tx"><span class="tt">Apna AI मॉडल</span><span class="ds">${provs.length} मॉडल अंदर · ऑटो चुनाव</span></span></div><span class="tag on">चालू</span><button class="mini" data-act="ptestall" aria-label="जाँचें">${ic('lightning',16)}</button></div>
+    <div class="padi"><p class="note pad0">यह आपका अपना एक ही मॉडल है, जो सभी काम (चैट, इमेज, वीडियो आदि) के लिए चलता है। सवाल के हिसाब से अंदर का सही मॉडल अपने-आप चुनता है, और किसी की सीमा पूरी हो जाए तो अगले मॉडल पर चला जाता है।</p>
+    <button class="btn sm ghost" data-act="minner" id="minnerb">${innerOpen?'अंदर के मॉडल छिपाएँ ▴':'अंदर के मॉडल देखें ▾'}</button></div>
+    <div id="minner"${innerOpen?'':' hidden'}>${provs.map(p=>{const cu=coolInfo(p);const mins=cu?Math.max(1,Math.ceil((cu-Date.now())/60000)):0;return `<div class="prow"><div class="grow"><span class="tx"><span class="tt">${esc(p.label)}</span><span class="ds">${esc(p.desc)}</span></span></div>${cu?`<span class="tag">${mins>180?'Worker में key नहीं':'आराम पर · '+mins+' मिनट'}</span>`:`<span class="tag on">चालू</span>`}${p.custom?`<button class="mini" data-act="ptest" data-v="${esc(p.id)}" aria-label="कनेक्शन जाँचें">${ic('lightning',16)}</button><button class="mini" data-act="pdel" data-v="${esc(p.id)}" aria-label="हटाएँ">${ic('trash',16)}</button>`:`<span class="tag on">बिल्ट-इन</span>`}</div>`}).join('')}<div class="padi"><p class="note pad0">Groq के सारे मुफ़्त मॉडल एक साथ जोड़ने के लिए:</p><button class="btn" data-act="groqall">${ic('plus',18)} Groq के सभी मॉडल जोड़ें</button></div></div>`)}
+    <button class="btn mgo" data-act="mgoto">${ic('plus',18)} अपना मॉडल जोड़ें</button>
+    ${lbl('अपना कस्टम मॉडल जोड़ें (OpenAI-जैसा API)')}
     ${card(`<div class="padi">
       ${field('cn','नाम',{ph:'जैसे: मेरा Qwen'})}${field('cu','Base URL',{ph:'https://मेरा-सर्वर.com/v1'})}${field('cm','मॉडल का नाम',{ph:'जैसे: qwen2.5-7b-instruct'})}${field('ck','API Key (ज़रूरत हो तो)',{type:'password',ph:'sk-…'})}${field('cim','इमेज बनाने वाला मॉडल (वैकल्पिक)',{ph:'जैसे: stable-diffusion-xl'})}${field('cim','इमेज-मॉडल का नाम (वैकल्पिक, चित्र बनाने के लिए)',{ph:'जैसे: sdxl'})}
       <div class="sp12"></div><button class="btn" data-act="padd">${ic('plus',18)} मॉडल जोड़ें</button>
@@ -2395,6 +2403,9 @@ SCREENS.s_model={render(node){
         }
         save();loadCustoms();draw();toast(n?n+' Groq मॉडल जुड़ गए — अब ये भी Apna AI में अपने-आप चलेंगे':'सभी Groq मॉडल पहले से जुड़े हैं',4000);
       },
+      minner:t=>{const b=$('#minner',node);if(!b)return;b.hidden=!b.hidden;innerOpen=!b.hidden;t.textContent=b.hidden?'अंदर के मॉडल देखें ▾':'अंदर के मॉडल छिपाएँ ▴'},
+      mgoto:()=>{const f=$('#cn',node);if(f){f.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>f.focus(),350)}},
+      ptestall:async()=>{toast('जाँच रहा हूँ…',1800);try{const r=await ai({prompt:'सिर्फ़ "ठीक" लिखो।',tier:'quick',track:false});const pv=PROV[r&&r.prov];toast('Apna AI चालू है — जवाब आया: '+(pv?pv.label:'ठीक'),4000)}catch(e){toast(errMsg(e),5000)}},
       pdel:t=>{S.customs=S.customs.filter(c=>c.id!==t.dataset.v);save();loadCustoms();draw()},
       ptest:async t=>{
         const p=PROV[t.dataset.v];if(!p)return;toast('जाँच रहा हूँ…',1800);
