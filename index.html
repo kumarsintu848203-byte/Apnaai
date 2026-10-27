@@ -377,6 +377,12 @@ table.grid{border-collapse:collapse;min-width:100%}
 .screen.voice .cb.mic.on{background:var(--mint);color:#06231d;box-shadow:0 0 0 5px var(--mintbg,rgba(94,224,200,.16)),0 8px 24px rgba(36,181,159,.4)}
 .screen.voice .cb.white{background:#fff;color:#111}
 .screen.voice .cb.off{opacity:.5}
+/* चैट स्क्रीन: पूरी स्क्रीन पर चैट; ऊपर की पट्टी और नीचे का बॉक्स चैट के ऊपर तैरते हैं */
+.screen.home>.home-h{position:absolute;top:0;left:0;right:0;z-index:6;padding-top:calc(10px + env(safe-area-inset-top,0px));padding-bottom:22px;background:linear-gradient(to bottom,var(--bg) 52%,transparent)}
+.screen.home>.comp-w{position:absolute;left:0;right:0;bottom:0;z-index:6;padding-top:26px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,var(--bg) 60%,transparent)}
+.screen.home .comp{background:color-mix(in srgb,var(--card) 90%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 6px 24px rgba(0,0,0,.22)}
+.screen.home>.feed{position:absolute;inset:0;padding-top:calc(78px + env(safe-area-inset-top,0px));padding-bottom:calc(var(--compH,130px) + 18px);padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
+.screen.home>.feed::-webkit-scrollbar{display:none}
 </style>
 </head><body>
 <div id="app"></div>
@@ -964,6 +970,7 @@ function sysPrompt({voice=false,extra='',web=false}={}){
     'ChatGPT की तरह स्वाभाविक, दोस्ताना और सीधे अंदाज़ में बात करो: पहले सीधा जवाब, फिर ज़रूरत भर विस्तार। "ज़रूर!", "बेशक" जैसी भराव वाली शुरुआत और अनावश्यक दोहराव से बचो। मदद के लिए एक छोटा अगला सुझाव दे सकते हो।',
     'सटीकता सबसे ज़रूरी है। पक्का पता न हो तो साफ़ कहो कि पक्का नहीं है। तथ्य, तारीख़, आँकड़े या स्रोत गढ़ो मत। गणित और तर्क के सवाल स्टेप-बाय-स्टेप हल करो और अंत में उत्तर एक लाइन में लिखो। सरकारी परीक्षा के सवाल में उत्तर के साथ संक्षिप्त कारण दो; अगर तथ्य बदल सकता है तो आधिकारिक किताब या साइट से जाँचने को कहो।',
     web?'इस सवाल के लिए ऐप ने तुम्हारे लिए इंटरनेट की खोज कर दी है और नतीजे यूज़र के संदेश में दिए हैं। इसलिए यह कभी मत कहो कि तुम्हारे पास इंटरनेट नहीं है; दिए गए नतीजों से जवाब दो।':'तुम्हारे पास इंटरनेट नहीं है, इसलिए ताज़ा घटनाओं के बारे में पक्का मत बोलो।',
+    'यह ऐप चैट में ही इमेज बना सकता है (यूज़र "…की इमेज/तस्वीर बनाओ" लिखे तो ऐप ख़ुद बना देता है)। कभी मत कहो कि तुम इमेज नहीं बना सकते। अगर यूज़र इमेज माँगे पर यह न बताए कि किसकी/कैसी, तो बस पूछो: "किस चीज़ की इमेज बनाऊँ?"।',
     'गणित सादे टेक्स्ट में लिखो (जैसे x², √, ×, ÷, 3/4); LaTeX या $…$ का इस्तेमाल मत करो।',
     voice?'यह आमने-सामने की आवाज़ वाली बातचीत है: जैसे दोस्त से फ़ोन पर बात करते हैं वैसे बोलो। पहले वाक्य में ही सीधा जवाब दो, कुल 1-3 छोटे वाक्य रखो (यूज़र ज़्यादा विस्तार माँगे तभी लंबा), हर वाक्य बोलने में आसान हो। मार्कडाउन, सूची, लिंक, कोड, इमोजी या सिंबल मत लिखो; संख्याएँ और तारीख़ें बोलने वाले ढंग से लिखो। ज़रूरत हो तो आख़िर में एक छोटा सवाल पूछकर बातचीत आगे बढ़ाओ।':'ज़रूरत हो तब हल्का मार्कडाउन (सूची, बोल्ड, टेबल, कोड-ब्लॉक) इस्तेमाल करो।',
     S.name?'यूज़र का नाम: '+S.name+' (हर बार नाम मत दोहराओ)।':'',
@@ -1580,7 +1587,8 @@ function turnHTML(t,i,last){
   }
   const v=t.v?(t.v.ok?`<div class="vbadge ok">${ic('check',14)} दोबारा जाँचा गया: कोई गलती नहीं मिली</div>`:`<div class="vbadge warn">${ic('alert',14)} <span><b>जाँच में फ़र्क मिला:</b> ${esc(t.v.note)}</span></div>`):'';
   const meta=t.by?`<span class="meta">${esc(t.by)}</span>`:'';
-  return `<div class="m a" data-i="${i}"><div class="b"><div class="md">${md(t.content)}</div>${v}</div><div class="acts">${meta}<button class="mini" data-act="mcopy" data-i="${i}" aria-label="कॉपी करें">${ic('copy',16)}</button><button class="mini" data-act="mlisten" data-i="${i}" aria-label="सुनें">${ic('volume',16)}</button>${last?`<button class="mini" data-act="mregen" aria-label="दोबारा जवाब">${ic('refresh',16)}</button>`:''}<button class="mini${t.fb==='up'?' on':''}" data-act="mfb" data-i="${i}" data-v="up" aria-label="पसंद आया">${ic('thumbup',16)}</button><button class="mini${t.fb==='down'?' on':''}" data-act="mfb" data-i="${i}" data-v="down" aria-label="पसंद नहीं आया">${ic('thumbdn',16)}</button>${t.v||t.content.length<60?'':`<button class="mini" data-act="mverify" data-i="${i}" aria-label="दोबारा जाँचें">${ic('shield',16)}</button>`}</div></div>`;
+  const im=t.img?`<img class="genimg" src="${t.img}" alt="बनाई गई तस्वीर"><div class="row2" style="margin:8px 0 2px"><button class="btn sm" data-act="msave" data-i="${i}">${ic('download',16)} इमेज सेव करें</button></div>`:'';
+  return `<div class="m a" data-i="${i}"><div class="b">${im}<div class="md">${md(t.content)}</div>${v}</div><div class="acts">${meta}<button class="mini" data-act="mcopy" data-i="${i}" aria-label="कॉपी करें">${ic('copy',16)}</button><button class="mini" data-act="mlisten" data-i="${i}" aria-label="सुनें">${ic('volume',16)}</button>${last?`<button class="mini" data-act="mregen" aria-label="दोबारा जवाब">${ic('refresh',16)}</button>`:''}<button class="mini${t.fb==='up'?' on':''}" data-act="mfb" data-i="${i}" data-v="up" aria-label="पसंद आया">${ic('thumbup',16)}</button><button class="mini${t.fb==='down'?' on':''}" data-act="mfb" data-i="${i}" data-v="down" aria-label="पसंद नहीं आया">${ic('thumbdn',16)}</button>${t.v||t.content.length<60?'':`<button class="mini" data-act="mverify" data-i="${i}" aria-label="दोबारा जाँचें">${ic('shield',16)}</button>`}</div></div>`;
 }
 function paintFeed(force){
   const home=homeEl();if(!home)return;
@@ -1717,15 +1725,78 @@ async function autoVerify(i){
   try{toast('जवाब को दोबारा जाँच रहा हूँ…',2000);t.v=await verifyAnswer(q.content,t.content);persist();paintFeed()}
   catch(e){toast(errMsg(e))}
 }
+
+/* ================= चैट में ही इमेज बनाना ================= */
+const IMGFULL={};   /* पूरी साइज़ की इमेज सिर्फ़ इस सत्र में (चैट में सेव होती है छोटी कॉपी) */
+function imageIntent(text){
+  const t=String(text||'').trim();
+  if(!t||t.length>600)return null;
+  const noun=/(चित्र|तस्वीर|तसवीर|फ़ोटो|फोटो|इमेज|लोगो|पोस्टर|वॉलपेपर|वालपेपर|कार्टून|\b(image|images|img|picture|photo|logo|poster|wallpaper|drawing|illustration|tasveer|tasvir|chitra|pic)\b)/i;
+  const verb=/(बना|बनवा|बनाओ|बनाइए|बनाइये|दिखाओ|दिखाइए|निकालो|डिज़ाइन|डिजाइन|\b(bana|banao|banado|banakar|banaiye|bnao|bna|banwa|make|create|generate|draw|design|show me|dikhao)\w*)/i;
+  if(!noun.test(t)||!verb.test(t))return null;
+  if(/(कैसे|कैसा|क्या है|क्या होता|how to|how do|what is|kaise|kya hai|बनाने का तरीका|बनाने की विधि|सीखो|सिखाओ)/i.test(t))return null;
+  if(/(सकते हो|सकते हैं|सकता है|sakte ho|sakta hai|can you|could you)/i.test(t)&&t.replace(noun,'').replace(verb,'').replace(/[^\p{L}]/gu,'').length<14)return null;
+  const subj=t.replace(new RegExp(noun.source,'gi'),' ').replace(new RegExp(verb.source,'gi'),' ').replace(/(कर के|करके|कर दो|करो|दो|भेजो|मुझे|एक|ek|ka|ki|ke|kar|karke|do|bhejo|mast|please|plz|के लिए|का|की|के|एक|बढ़िया|शानदार)/gi,' ').replace(/[^\p{L}\p{N}]/gu,'');
+  if(subj.length<3)return null;
+  return {style:/(लोगो|logo)/i.test(t)?'logo':/(पोस्टर|poster)/i.test(t)?'poster':/(कार्टून|cartoon)/i.test(t)?'cartoon':'',
+    ratio:/(वॉलपेपर|वालपेपर|wallpaper|story|स्टोरी|mobile|मोबाइल|portrait)/i.test(t)?'9:16':/(banner|बैनर|youtube|यूट्यूब|thumbnail|थंबनेल|website|वेबसाइट|landscape|cover|कवर)/i.test(t)?'16:9':'1:1'};
+}
+async function shrinkImg(url,max=640,q=.72){
+  const im=await loadImg(url);const k=Math.min(1,max/Math.max(im.width,im.height));
+  const c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.width*k));c.height=Math.max(1,Math.round(im.height*k));
+  const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',q);
+}
+async function genImageChat(text,ip,sig){
+  const prov=imgProvider();const style=ip.style||'';
+  let en=text;
+  try{const tr=await ai({prompt:'Convert this image request (may be Hindi, Hinglish or English, may include extra chat words) into one clear, detailed English image-generation prompt (max 60 words). Describe the subject literally and concretely. Output ONLY the English prompt.\n\n'+text,system:'You write English prompts for text-to-image models.',tier:'quick',kind:'tool',signal:sig});
+    const t=(tr.text||'').trim().replace(/^["\'`]+|["\'`]+$/g,'');if(t&&t.length<600)en=t}catch(e){if(e&&e.code==='cancelled')throw e}
+  if(prov&&prov.img){
+    try{
+      const url=await prov.img({prompt:en+', '+(style?STYLE_EN[style]:'high quality, detailed, beautiful lighting'),ratio:ip.ratio,signal:sig});
+      return {kind:'png',url,note:prov.label};
+    }catch(e){if(e&&e.code==='cancelled')throw e;toast('इमेज-मॉडल नहीं चला ('+((e&&e.message)||'गड़बड़')+') — वेक्टर चित्र बना रहा हूँ',5000)}
+  }
+  const [W,H]=RATIOS[ip.ratio]||[1000,1000];
+  const svg=await svgFromAI(text,W,H,{sig,tier:'default',extra:'शैली: '+(style==='logo'?'साफ़ लोगो':style==='poster'?'पोस्टर':'सुंदर दृश्य')});
+  return {kind:'svg',svg,url:svgURL(svg),W,H,note:'वेक्टर (SVG)'};
+}
+async function runImageChat(text,ip){
+  const turn={id:uid(),role:'user',content:text,ts:Date.now()};
+  cur.turns.push(turn);cur.updated=Date.now();
+  ctrl=new AbortController();busy=true;liveText='';setSendIcon();paintFeed(true);
+  liveUpdate('🎨 इमेज बना रहा हूँ… (10-30 सेकंड लग सकते हैं)');
+  const t0=performance.now();let r=null,err=null;
+  try{r=await genImageChat(text,ip,ctrl.signal)}catch(e){err=e}
+  const aborted=err&&err.code==='cancelled';
+  busy=false;ctrl=null;liveText='';setSendIcon();
+  if(r){
+    const id=uid();let small=r.url;
+    try{if(r.kind==='png')small=await shrinkImg(r.url)}catch(e){if(/^data:/.test(r.url)&&r.url.length>400000)small=''}
+    IMGFULL[id]=r;
+    cur.turns.push({id,role:'assistant',content:'🎨 आपके लिए इमेज बन गई।',img:small,imgKind:r.kind,imgSvg:r.kind==='svg'?r.svg:'',by:r.note||'',sec:((performance.now()-t0)/1000).toFixed(1),ts:Date.now()});
+  }else if(!aborted){
+    cur.turns.push({id:uid(),role:'assistant',content:'⚠ इमेज नहीं बन सकी: '+errMsg(err),by:'',err:true,ts:Date.now()});
+  }
+  cur.updated=Date.now();
+  if(cur.turns.length<=2||cur.title==='नई चैट'){cur.title=text.replace(/\s+/g,' ').slice(0,42)||'नई चैट'}
+  ensureSaved();persist();paintFeed(true);
+}
+async function saveChatImg(i){
+  const t=cur.turns[i];if(!t||!t.img)return;
+  try{
+    const f=IMGFULL[t.id];
+    if(t.imgKind==='svg'){const sv=(f&&f.svg)||t.imgSvg;saveFile('apna-ai-image.png',await canvasBlob(await rasterSvg(sv,(f&&f.W)||1000,(f&&f.H)||1000)))}
+    else{const b=await (await fetch((f&&f.url)||t.img)).blob();saveFile('apna-ai-image.png',b)}
+  }catch(e){toast('इमेज सेव नहीं हो सकी')}
+}
 async function sendMessage(text){
   text=(text||'').trim();
   if(busy){ctrl&&ctrl.abort();return}
   if(!text&&!pending.length)return;
   TTS.stop();
-  if(!pending.length&&text.length<400&&/(चित्र|तस्वीर|फ़ोटो|फोटो|इमेज|लोगो|पोस्टर|image|picture|photo|logo|poster)/i.test(text)&&/(बना|draw|make|create|generate)/i.test(text)&&!/(कैसे|how to|क्या है|what is)/i.test(text)){
-    toast('चित्र बनाने के लिए इमेज बनाना खुल रहा है…',2500);
-    go('t_image',{prompt:text,auto:true});return;
-  }
+  if(!pending.length){const ip=imageIntent(text);if(ip){await runImageChat(text,ip);return}}
   const turn={id:uid(),role:'user',content:text||'(फ़ाइल देखकर बताइए)',ts:Date.now()};
   if(pending.length){turn.att=pending.map(a=>({name:a.name,kind:a.kind}));ATT[turn.id]=pending;pending=[]}
   cur.turns.push(turn);cur.updated=Date.now();
@@ -1749,11 +1820,13 @@ function dictate(btn){
   if(!recog)btn.classList.remove('mic-on');
 }
 
-SCREENS.home={from:'none',render(node){
+SCREENS.home={from:'none',cls:'home',render(node){
   node.innerHTML=`
   <header class="home-h"><button class="ib" data-go="menu" aria-label="मेन्यू">${ic('menu',24)}</button><div class="sp"></div><button class="ib" data-act="newchat" aria-label="नई चैट">${ic('edit',22)}</button><button class="ib" data-go="more" aria-label="और विकल्प">${ic('dots',22)}</button></header>
   <main class="feed empty" id="feed" aria-live="polite"></main>
-  <footer class="comp-w"><div id="atts" class="atts" hidden></div><div class="comp"><textarea id="inp" rows="1" placeholder="यहाँ अपना संदेश लिखें…" aria-label="संदेश"></textarea><div class="comp-r"><button class="ib" data-act="plus" aria-label="जोड़ें" style="margin-left:-8px">${ic('plus',24)}</button><button class="ib mint" data-go="voice" aria-label="वॉइस बातचीत">${ic('wave',24)}</button><button class="ib${S.search&&S.search.on?' on':''}" data-act="websw" aria-label="इंटरनेट खोज" aria-pressed="${!!(S.search&&S.search.on)}">${ic('globe',22)}</button><div class="sp"></div><button class="ib dim" data-act="dictate" aria-label="बोलकर लिखें">${ic('mic',22)}</button><button class="send" data-act="send" aria-label="भेजें">${ic('send',22)}</button></div></div></footer>`;
+  <footer class="comp-w"><div id="atts" class="atts" hidden></div><div class="comp"><textarea id="inp" rows="1" placeholder="यहाँ अपना संदेश लिखें…" aria-label="संदेश"></textarea><div class="comp-r"><button class="ib" data-act="plus" aria-label="जोड़ें" style="margin-left:-8px">${ic('plus',24)}</button><button class="ib mint" data-go="voice" aria-label="वॉइस बातचीत">${ic('wave',24)}</button><div class="sp"></div><button class="ib dim" data-act="dictate" aria-label="बोलकर लिखें">${ic('mic',22)}</button><button class="send" data-act="send" aria-label="भेजें">${ic('send',22)}</button></div></div></footer>`;
+  const cw=node.querySelector('.comp-w');
+  if(cw&&window.ResizeObserver){const setH=()=>node.style.setProperty('--compH',cw.offsetHeight+'px');setH();new ResizeObserver(setH).observe(cw)}
   wire(node,{
     act:{
       newchat:()=>{newChat();paintFeed(true);setSendIcon();$('#inp',node).focus()},
@@ -1763,6 +1836,7 @@ SCREENS.home={from:'none',render(node){
       dictate:t=>dictate(t),
       rmatt:t=>{pending.splice(+t.dataset.i,1);paintAtts()},
       mcopy:t=>copyText(cur.turns[+t.dataset.i].content),
+      msave:t=>saveChatImg(+t.dataset.i),
       mlisten:t=>{if(TTS.on){TTS.stop();return}if(TTS.say(cur.turns[+t.dataset.i].content))toast('सुना रहा हूँ… (रोकने के लिए फिर दबाएँ)',2200)},
       mregen:()=>{if(busy)return;const last=cur.turns[cur.turns.length-1];if(last&&last.role==='assistant')cur.turns.pop();runAssistant()},
       mfb:t=>{const x=cur.turns[+t.dataset.i];x.fb=x.fb===t.dataset.v?'':t.dataset.v;persist();paintFeed();toast(x.fb?'आपकी राय सेव हुई':'राय हटाई')},
