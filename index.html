@@ -1758,17 +1758,46 @@ async function shrinkImg(url,max=640,q=.72){
   const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0,c.width,c.height);
   return c.toDataURL('image/jpeg',q);
 }
+
+/* वेबसाइट/ऐप/UI डिज़ाइन: Gemini असली HTML+CSS डिज़ाइन लिखता है और ऐप उसे इमेज बना देता है — लिखावट साफ़ आती है (मुफ़्त) */
+function isUIDesign(t){return /(वेबसाइट|वेब ?पेज|website|web ?page|landing|लैंडिंग|\bui\b|\bux\b|dashboard|डैशबोर्ड|ऐप का डिज़ाइन|app design|app ui|mockup|मॉकअप|शॉपिंग ऐप|shopping app)/i.test(t)&&!/(लोगो|logo|पोस्टर|poster)/i.test(t)}
+async function htmlDesignImage(text,en,ratio,sig){
+  const [W,H]=ratio==='9:16'?[720,1280]:ratio==='1:1'?[1000,1000]:[1280,800];
+  const rr=await ai({prompt:'Design ONE high-fidelity, professional UI design mockup as HTML+CSS for this request: '+text+'\nEnglish brief: '+en+'\n\nRules:\n- Output ONLY one HTML fragment (no <html>/<head>/<body> tags, no explanations, no markdown fences).\n- Root element: <div style="width:'+W+'px;height:'+H+'px;overflow:hidden;position:relative;font-family:Arial,Helvetica,sans-serif;background:#fff;box-sizing:border-box">.\n- All CSS inline or in a single <style> block. No external URLs, no <script>, no <img>, no web fonts.\n- Use CSS gradients, emoji and inline <svg> for product pictures and icons.\n- Make it look like a real modern '+(isUIDesign(text)&&/(app|ऐप)/i.test(text)&&!/(website|वेबसाइट)/i.test(text)?'mobile app':'website homepage')+': brand logo, navigation bar, search bar, hero banner with an offer, category icons, product cards (name, price, old price, rating, Add to Cart button), footer. Real-looking English text, consistent colour palette, rounded cards, soft shadows, readable font sizes (min 13px).',
+    system:'You are a senior UI designer who writes pixel-perfect, valid HTML and CSS.',tier:'default',kind:'tool',signal:sig});
+  let h=String(rr.text||'').replace(/^```[a-z]*\s*/i,'').replace(/```\s*$/,'').trim();
+  if(!/<div|<section|<main|<header/i.test(h))throw {message:'डिज़ाइन का कोड नहीं मिला'};
+  const d=new DOMParser().parseFromString('<!doctype html><html><body>'+h+'</body></html>','text/html');
+  d.querySelectorAll('script,link,iframe,img,video,audio,object,embed,form').forEach(n=>n.remove());
+  const ser=new XMLSerializer();
+  let inner=[...d.body.childNodes].map(n=>ser.serializeToString(n)).join('');
+  const sty=[...d.querySelectorAll('style')].length?'':'';
+  inner=inner.replace(/url\(\s*['"]?https?:[^)]*\)/gi,'none').replace(/@import[^;]*;/gi,'');
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'"><foreignObject x="0" y="0" width="'+W+'" height="'+H+'"><div xmlns="http://www.w3.org/1999/xhtml" style="width:'+W+'px;height:'+H+'px;overflow:hidden">'+inner+'</div></foreignObject></svg>';
+  const im=await loadImg('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg));
+  const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,W,H);x.drawImage(im,0,0,W,H);
+  return c.toDataURL('image/jpeg',.92);
+}
 async function genImageChat(text,ip,sig){
   const prov=imgProvider();const style=ip.style||'';
   let en=text,gerr='';
   try{const tr=await ai({prompt:'Convert this image request (may be Hindi, Hinglish or English, may include extra chat words) into ONE clear, detailed English image-generation prompt (max 90 words). Describe the subject literally and concretely. If the request is for a website, app or UI design: describe a single high-fidelity, professional UI design mockup image — for a website, a full desktop homepage screenshot (wide 16:9 landscape) with a top navigation bar, logo, search bar, hero banner, product/category grid and footer, modern clean layout, readable short English labels; for an app, show the app screens. Do NOT describe a person holding a phone unless asked. Output ONLY the English prompt.\n\n'+text,system:'You write English prompts for text-to-image models.',tier:'quick',kind:'tool',signal:sig});
     const t=(tr.text||'').trim().replace(/^["\'`]+|["\'`]+$/g,'');if(t&&t.length<900)en=t}catch(e){if(e&&e.code==='cancelled')throw e}
-  const ui=/(वेबसाइट|website|ui\b|ux\b|डिज़ाइन|डिजाइन|design|app|ऐप|landing|dashboard|डैशबोर्ड|poster|पोस्टर|logo|लोगो|banner|बैनर|thumbnail)/i.test(text);
-  /* पहले Gemini की इमेज-जनरेशन (लिखावट/डिज़ाइन में बेहतर); न चले तो नीचे वाला Pollinations */
-  try{
-    const url=await geminiImage(en+(style?', '+STYLE_EN[style]:''),ip.ratio,sig);
-    return {kind:'png',url,note:'Gemini इमेज'};
-  }catch(e){if(e&&e.code==='cancelled')throw e;gerr=((e&&e.message)||'गड़बड़').slice(0,140)}
+  const ui=isUIDesign(text);
+  let herr='';
+  if(ui){
+    try{const url=await htmlDesignImage(text,en,ip.ratio==='1:1'?'16:9':ip.ratio,sig);return {kind:'png',url,note:'AI डिज़ाइन (HTML)'}}
+    catch(e){if(e&&e.code==='cancelled')throw e;herr=((e&&e.message)||'गड़बड़').slice(0,100)}
+  }
+  /* Gemini की इमेज-जनरेशन: मुफ़्त सीमा न हो तो 12 घंटे दोबारा कोशिश नहीं */
+  if(!(S.gimgOff&&S.gimgOff>Date.now())){
+    try{
+      const url=await geminiImage(en+(style?', '+STYLE_EN[style]:''),ip.ratio,sig);
+      return {kind:'png',url,note:'Gemini इमेज'};
+    }catch(e){if(e&&e.code==='cancelled')throw e;gerr=((e&&e.message)||'गड़बड़').slice(0,140);
+      if(/कोटा|सीमा|429|quota/i.test(gerr)){S.gimgOff=Date.now()+12*3600*1000;save();gerr+=' (अगले 12 घंटे Gemini इमेज दोबारा नहीं आज़माऊँगा)'}}
+  }
+  if(herr)gerr=(gerr?gerr+' | ':'')+'HTML डिज़ाइन नहीं बना: '+herr;
   if(prov&&prov.img){
     try{
       const url=await prov.img({prompt:en+', '+(style?STYLE_EN[style]:'high quality, detailed, beautiful lighting'),ratio:ip.ratio,signal:sig});
@@ -1792,7 +1821,7 @@ async function runImageChat(text,ip){
     const id=uid();let small=r.url;
     try{if(r.kind==='png')small=await shrinkImg(r.url)}catch(e){if(/^data:/.test(r.url)&&r.url.length>400000)small=''}
     IMGFULL[id]=r;
-    cur.turns.push({id,role:'assistant',content:'🎨 आपके लिए इमेज बन गई।'+(r.gerr?'\n\n_Gemini इमेज नहीं चली: '+r.gerr+' — इसलिए दूसरे मॉडल से बनी (वेबसाइट/लिखावट वाली इमेज में यह कमज़ोर है)।_':''),img:small,imgKind:r.kind,imgSvg:r.kind==='svg'?r.svg:'',by:r.note||'',sec:((performance.now()-t0)/1000).toFixed(1),ts:Date.now()});
+    cur.turns.push({id,role:'assistant',content:'🎨 आपके लिए इमेज बन गई।'+(r.gerr?'\n\nनोट: '+r.gerr:''),img:small,imgKind:r.kind,imgSvg:r.kind==='svg'?r.svg:'',by:r.note||'',sec:((performance.now()-t0)/1000).toFixed(1),ts:Date.now()});
   }else if(!aborted){
     cur.turns.push({id:uid(),role:'assistant',content:'⚠ इमेज नहीं बन सकी: '+errMsg(err),by:'',err:true,ts:Date.now()});
   }
