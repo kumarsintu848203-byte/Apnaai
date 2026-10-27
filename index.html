@@ -994,6 +994,17 @@ function searchEndpoint(){
   const c=(S.customs||[]).find(x=>/\/(gemini|openai)\/v1\/?$/i.test(x.url||''));
   return c?{url:c.url.replace(/\/(gemini|openai)\/v1\/?$/i,'/search'),key:c.key||''}:null;
 }
+/* Gemini की इमेज-जनरेशन (Worker के /imagegen से): लिखावट और डिज़ाइन वाली इमेज में बेहतर */
+async function geminiImage(prompt,ratio,signal){
+  const ep=searchEndpoint();if(!ep)throw {code:'no_worker',message:'Worker जुड़ा नहीं है'};
+  let r;
+  try{r=await fetch(ep.url.replace(/\/search$/,'/imagegen'),{method:'POST',signal,headers:{'Content-Type':'application/json',Authorization:'Bearer '+ep.key},body:JSON.stringify({prompt,ratio})})}
+  catch(e){if(signal&&signal.aborted)throw {code:'cancelled',message:'रोका गया'};throw {code:'network',message:'कनेक्शन नहीं हो सका'}}
+  let j=null;try{j=await r.json()}catch(e){}
+  if(r.status===404)throw {code:'http_404',message:'Worker में नया इमेज-कोड नहीं है'};
+  if(!r.ok||!j||!j.image)throw {code:'http_'+r.status,message:(j&&j.error&&j.error.message)||('सर्वर ने '+r.status+' लौटाया')};
+  return 'data:'+(j.mime||'image/png')+';base64,'+j.image;
+}
 function searchPlan(t){
   const sr=S.search||{};if(!sr.on)return null;
   t=String(t||'').trim();if(!t||t.length>500)return null;
@@ -1749,18 +1760,24 @@ async function shrinkImg(url,max=640,q=.72){
 }
 async function genImageChat(text,ip,sig){
   const prov=imgProvider();const style=ip.style||'';
-  let en=text;
-  try{const tr=await ai({prompt:'Convert this image request (may be Hindi, Hinglish or English, may include extra chat words) into one clear, detailed English image-generation prompt (max 60 words). Describe the subject literally and concretely. Output ONLY the English prompt.\n\n'+text,system:'You write English prompts for text-to-image models.',tier:'quick',kind:'tool',signal:sig});
-    const t=(tr.text||'').trim().replace(/^["\'`]+|["\'`]+$/g,'');if(t&&t.length<600)en=t}catch(e){if(e&&e.code==='cancelled')throw e}
+  let en=text,gerr='';
+  try{const tr=await ai({prompt:'Convert this image request (may be Hindi, Hinglish or English, may include extra chat words) into ONE clear, detailed English image-generation prompt (max 90 words). Describe the subject literally and concretely. If the request is for a website, app or UI design: describe a single high-fidelity, professional UI design mockup image — for a website, a full desktop homepage screenshot (wide 16:9 landscape) with a top navigation bar, logo, search bar, hero banner, product/category grid and footer, modern clean layout, readable short English labels; for an app, show the app screens. Do NOT describe a person holding a phone unless asked. Output ONLY the English prompt.\n\n'+text,system:'You write English prompts for text-to-image models.',tier:'quick',kind:'tool',signal:sig});
+    const t=(tr.text||'').trim().replace(/^["\'`]+|["\'`]+$/g,'');if(t&&t.length<900)en=t}catch(e){if(e&&e.code==='cancelled')throw e}
+  const ui=/(वेबसाइट|website|ui\b|ux\b|डिज़ाइन|डिजाइन|design|app|ऐप|landing|dashboard|डैशबोर्ड|poster|पोस्टर|logo|लोगो|banner|बैनर|thumbnail)/i.test(text);
+  /* पहले Gemini की इमेज-जनरेशन (लिखावट/डिज़ाइन में बेहतर); न चले तो नीचे वाला Pollinations */
+  try{
+    const url=await geminiImage(en+(style?', '+STYLE_EN[style]:''),ip.ratio,sig);
+    return {kind:'png',url,note:'Gemini इमेज'};
+  }catch(e){if(e&&e.code==='cancelled')throw e;gerr=((e&&e.message)||'गड़बड़').slice(0,140)}
   if(prov&&prov.img){
     try{
       const url=await prov.img({prompt:en+', '+(style?STYLE_EN[style]:'high quality, detailed, beautiful lighting'),ratio:ip.ratio,signal:sig});
-      return {kind:'png',url,note:prov.label};
+      return {kind:'png',url,note:prov.label,gerr};
     }catch(e){if(e&&e.code==='cancelled')throw e;toast('इमेज-मॉडल नहीं चला ('+((e&&e.message)||'गड़बड़')+') — वेक्टर चित्र बना रहा हूँ',5000)}
   }
   const [W,H]=RATIOS[ip.ratio]||[1000,1000];
   const svg=await svgFromAI(text,W,H,{sig,tier:'default',extra:'शैली: '+(style==='logo'?'साफ़ लोगो':style==='poster'?'पोस्टर':'सुंदर दृश्य')});
-  return {kind:'svg',svg,url:svgURL(svg),W,H,note:'वेक्टर (SVG)'};
+  return {kind:'svg',svg,url:svgURL(svg),W,H,note:'वेक्टर (SVG)',gerr};
 }
 async function runImageChat(text,ip){
   const turn={id:uid(),role:'user',content:text,ts:Date.now()};
@@ -1775,7 +1792,7 @@ async function runImageChat(text,ip){
     const id=uid();let small=r.url;
     try{if(r.kind==='png')small=await shrinkImg(r.url)}catch(e){if(/^data:/.test(r.url)&&r.url.length>400000)small=''}
     IMGFULL[id]=r;
-    cur.turns.push({id,role:'assistant',content:'🎨 आपके लिए इमेज बन गई।',img:small,imgKind:r.kind,imgSvg:r.kind==='svg'?r.svg:'',by:r.note||'',sec:((performance.now()-t0)/1000).toFixed(1),ts:Date.now()});
+    cur.turns.push({id,role:'assistant',content:'🎨 आपके लिए इमेज बन गई।'+(r.gerr?'\n\n_Gemini इमेज नहीं चली: '+r.gerr+' — इसलिए दूसरे मॉडल से बनी (वेबसाइट/लिखावट वाली इमेज में यह कमज़ोर है)।_':''),img:small,imgKind:r.kind,imgSvg:r.kind==='svg'?r.svg:'',by:r.note||'',sec:((performance.now()-t0)/1000).toFixed(1),ts:Date.now()});
   }else if(!aborted){
     cur.turns.push({id:uid(),role:'assistant',content:'⚠ इमेज नहीं बन सकी: '+errMsg(err),by:'',err:true,ts:Date.now()});
   }
