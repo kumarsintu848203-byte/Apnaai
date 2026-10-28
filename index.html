@@ -966,13 +966,14 @@ const ERRS={
 };
 const errMsg=e=>(e&&ERRS[e.code])||(e&&e.message)||'कुछ गड़बड़ हुई। फिर से कोशिश करें।';
 
-function sysPrompt({voice=false,extra='',web=false}={}){
+function sysPrompt({voice=false,extra='',web=false,userText=''}={}){
   const L={hi:'हिंदी (देवनागरी)',en:'English',hinglish:'Hinglish (बोलचाल की हिंदी, रोमन अक्षरों में)',auto:''}[S.lang];
   const st={short:'जवाब बहुत छोटा और सीधा रखो (2 से 4 वाक्य)।',balanced:'जवाब संतुलित रखो: न बहुत छोटा, न बहुत लंबा।',detailed:'जवाब विस्तार से दो: स्टेप, उदाहरण और कारण के साथ।'}[S.style];
   return [
     'तुम "Apna AI" हो, भारतीय यूज़र्स के लिए बना मददगार और भरोसेमंद AI सहायक।',
     S.lang==='auto'?'यूज़र जिस भाषा में लिखे, उसी भाषा में जवाब दो।':'जवाब '+L+' में दो (कोड, फ़ॉर्मूले और तकनीकी शब्द ज़रूरत हो तो अंग्रेज़ी में रख सकते हो)।',
     st,
+    ((S.lang==='auto'||S.lang==='en')&&devaRatio(String(userText||''))>.2)?'यूज़र ने हिंदी (देवनागरी) में लिखा/बोला है, इसलिए (भाषा-सेटिंग कुछ भी हो) जवाब हमेशा हिंदी (देवनागरी) में दो। "हिंदी में बोलो/बताओ/बातचीत करो" का मतलब है कि अब से हिंदी में जवाब देना है — अंग्रेज़ी में नहीं।':'',
     'ChatGPT की तरह स्वाभाविक, दोस्ताना और सीधे अंदाज़ में बात करो: पहले सीधा जवाब, फिर ज़रूरत भर विस्तार। "ज़रूर!", "बेशक" जैसी भराव वाली शुरुआत और अनावश्यक दोहराव से बचो। मदद के लिए एक छोटा अगला सुझाव दे सकते हो।',
     'सटीकता सबसे ज़रूरी है। पक्का पता न हो तो साफ़ कहो कि पक्का नहीं है। तथ्य, तारीख़, आँकड़े या स्रोत गढ़ो मत। गणित और तर्क के सवाल स्टेप-बाय-स्टेप हल करो और अंत में उत्तर एक लाइन में लिखो। सरकारी परीक्षा के सवाल में उत्तर के साथ संक्षिप्त कारण दो; अगर तथ्य बदल सकता है तो आधिकारिक किताब या साइट से जाँचने को कहो।',
     web?'इस सवाल के लिए ऐप ने तुम्हारे लिए इंटरनेट की खोज कर दी है और नतीजे यूज़र के संदेश में दिए हैं। इसलिए यह कभी मत कहो कि तुम्हारे पास इंटरनेट नहीं है; दिए गए नतीजों से जवाब दो।':'तुम्हारे पास इंटरनेट नहीं है, इसलिए ताज़ा घटनाओं के बारे में पक्का मत बोलो।',
@@ -1092,13 +1093,14 @@ function modelTraits(p){
   return {fast,smart,gem,vision:!!p.vision};
 }
 function coolInfo(p){const u=COOL[p.id]||0;return u>Date.now()?u:0}
-function autoCands(o){
+function autoCands(o,hi){
   let L=poolAll().map((p,i)=>({p,i})).filter(x=>(COOL[x.p.id]||0)<Date.now()+10800000);   /* जिसकी Worker में key ही नहीं, उसे छोड़ दो */
   if(!L.length)L=poolAll().map((p,i)=>({p,i}));
   if(o.images&&o.images.length){const v=L.filter(x=>x.p.vision);if(v.length)L=v}
   const tier=(o.images&&o.images.length&&o.tier==='quick')?'default':(o.tier||'default');   /* फ़ोटो में गुणवत्ता पहले */
   const rank=p=>{const t=modelTraits(p);
     if(o.web&&t.gem)return -1;
+    if(hi&&tier==='quick')return t.gem?0:(t.smart?1:(t.fast?2:1.5));   /* हिंदी में छोटे मॉडल कमज़ोर हैं */
     if(tier==='quick')return t.fast?(/instant|\b8b|lite/i.test((p.model||'')+' '+(p.label||''))?0:.5):(t.smart?2:1);
     if(tier==='complex')return t.smart?0:(t.fast?2:1);
     return t.gem?0:(t.smart?1:(t.fast?3:2));
@@ -1129,7 +1131,9 @@ async function aiOne(p,o){
 async function ai(o){
   if(o.provider&&PROV[o.provider])return aiOne(PROV[o.provider],o);
   if(o.images&&o.images.length&&o.tier==='quick')o=Object.assign({},o,{tier:'default'});   /* फ़ोटो में पूरा मॉडल */
-  const cands=autoCands(o);
+  const lastTxt=o.turns&&o.turns.length?String(o.turns[o.turns.length-1].content||''):String(o.prompt||'');
+  const hi=devaRatio(lastTxt)>.2;
+  const cands=autoCands(o,hi);
   if(!cands.length)return aiOne(PROV.claude,o);
   let first=null,last=null,all429=true;
   for(const p of cands){
@@ -1769,7 +1773,7 @@ async function runAssistant({voice=false}={}){
     }
     const hist=historyForModel(voice);
     if(wextra){const li=hist.map(x=>x.role).lastIndexOf('user');if(li>=0)hist[li]={...hist[li],content:wextra+'\n\n---\nयूज़र का सवाल: '+(typeof hist[li].content==='string'?hist[li].content:text)}}
-    const r=await ai({turns:hist,system:sysPrompt({voice,web:!!wextra}),tier,effort:(S.deep&&tier==='complex')?'high':undefined,images:imgs,web:false,signal:ctrl.signal,kind:'msg',onText:wpre?(t=>liveUpdate(wpre+t)):liveUpdate});
+    const r=await ai({turns:hist,system:sysPrompt({voice,web:!!wextra,userText:text}),tier,effort:(S.deep&&tier==='complex')?'high':undefined,images:imgs,web:false,signal:ctrl.signal,kind:'msg',onText:wpre?(t=>liveUpdate(wpre+t)):liveUpdate});
     reply=wpre+r.text+wsrc;cut=r.truncated;usedProv=r.prov||'';
   }catch(e){
     err=e;reply=(e&&e.text)||liveText||'';
