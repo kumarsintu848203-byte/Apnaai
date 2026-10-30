@@ -1770,7 +1770,8 @@ async function runAssistant({voice=false}={}){
           wextra=webContext(w.results)+(voice?'\n\n[आवाज़ मोड] यह जवाब बोलकर सुनाया जाएगा: सिर्फ़ 2-3 छोटे, सीधे वाक्य में सबसे ज़रूरी बात बताओ; सूची, बिंदु या नंबर मत लिखो।':'');
           const used=[...new Set(w.results.map(x=>SRC_NAME[x.source]||x.source))].join(' + ');
           wcards=w.results.filter(x=>x.card&&x.card.teams&&x.card.teams.length>1).slice(0,2).map(x=>x.card);
-          if(!voice){wpre='🌐 *यह जवाब इंटरनेट से लिया गया है ('+used+')।*\n\n';wsrc=webSources(w.results)}
+          const cn=(w.notes||[]).find(n=>n&&n.source==='cricket'&&n.dbg);
+          if(!voice){wpre=(cn&&plan.scores?'🔧 *क्रिकेट कार्ड नहीं मिला ('+String(cn.dbg).slice(0,80)+')*\n\n':'')+'🌐 *यह जवाब इंटरनेट से लिया गया है ('+used+')।*\n\n';wsrc=webSources(w.results)}
         }else if(!voice)wpre='⚠ *इंटरनेट पर कुछ नहीं मिला ('+noteWhy(w.notes)+'), इसलिए यह मेरी पुरानी जानकारी से जवाब है — ताज़ा नहीं हो सकता।*\n\n';
       }catch(e){
         if(e&&e.code==='cancelled')throw e;
