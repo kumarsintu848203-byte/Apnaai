@@ -989,14 +989,14 @@ function sysPrompt({voice=false,extra='',web=false,userText=''}={}){
    (खोजना है या नहीं, यह Gemini खुद तय करता है; खोजने पर जवाब में साफ़ लिखा आता है) */
 function needsWeb(t){
   t=String(t||'');if(t.length>500)return false;
-  return /(आज|अभी|ताज़ा|ताजा|आजकल|हाल ही|नवीनतम|नया|नई|न्यूज़|न्यूज|खबर|ख़बर|समाचार|कीमत|भाव|रेट|स्कोर|मैच|मौसम|चुनाव|रिज़ल्ट|रिजल्ट|नतीजा|वर्तमान|लेटेस्ट|कौन है|कौन हैं|कितना है|कब है|कब होगा|latest|today|tonight|current|news|price|score|weather|result|recent|right now|who is|who won|stock|rate|\bvs\.?\b|versus|match(es)?\b|fixtures?|line-?ups?|standings|points table|live\b|schedule|release date|\bipl\b|world cup|मैच|लाइव|बनाम|रिलीज़|रिलीज|शेयर|सेंसेक्स|निफ्टी|सोना|चाँदी|चांदी|पेट्रोल|डीज़ल|टीम)/i.test(t)||/20(2[4-9]|3\d)/.test(t)
+  return /(आज|अभी|ताज़ा|ताजा|आजकल|हाल ही|नवीनतम|नया|नई|न्यूज़|न्यूज|खबर|ख़बर|समाचार|कीमत|भाव|रेट|स्कोर|मैच|मौसम|चुनाव|रिज़ल्ट|रिजल्ट|नतीजा|वर्तमान|लेटेस्ट|कौन है|कौन हैं|कितना है|कब है|कब होगा|latest|today|tonight|current|news|price|score|weather|result|recent|right now|who is|who won|stock|rate|\bvs\.?\b|versus|match(es)?\b|fixtures?|line-?ups?|standings|points table|live\b|schedule|release date|\bipl\b|cricket|क्रिकेट|t20|\bodi\b|world cup|मैच|लाइव|बनाम|रिलीज़|रिलीज|शेयर|सेंसेक्स|निफ्टी|सोना|चाँदी|चांदी|पेट्रोल|डीज़ल|टीम)/i.test(t)||/20(2[4-9]|3\d)/.test(t)
     /* छोटा संदेश जिसमें दो-तीन नाम (बड़े अक्षर वाले) हों, जैसे "Hull City Brentford" या "Elon Musk" — अक्सर ताज़ा जानकारी माँगता है */
     ||(t.length<=60&&t.split(/\s+/).length<=6&&/\b[A-Z][a-z]+\s+[A-Z][a-z]+/.test(t)&&!/(what|how|why|explain|write|translate|define|meaning)/i.test(t)&&!/^\s*(hello|hi|hey|thanks?|thank you|good|namaste|ok)\b/i.test(t));
 }
 
 /* ================= इंटरनेट खोज (Tavily + Wikipedia, Worker के ज़रिए) =================
    चाबियाँ ऐप में नहीं हैं; सब Cloudflare Worker में हैं। खोजना है या नहीं, यह सवाल देखकर अपने-आप तय होता है। */
-const SRC_NAME={tavily:'Tavily वेब-खोज',wikipedia:'Wikipedia',espn:'ESPN लाइव स्कोर'};
+const SRC_NAME={tavily:'Tavily वेब-खोज',wikipedia:'Wikipedia',espn:'ESPN लाइव स्कोर',cricket:'क्रिकेट लाइव स्कोर'};
 function searchEndpoint(){
   const c=(S.customs||[]).find(x=>/\/(gemini|openai)\/v1\/?$/i.test(x.url||''));
   return c?{url:c.url.replace(/\/(gemini|openai)\/v1\/?$/i,'/search'),key:c.key||''}:null;
@@ -1028,7 +1028,7 @@ function searchPlan(t){
   else if(gk&&!news)p={tavily:false,wikipedia:!!sr.wiki,topic:'general',fb:!!sr.tavily};
   else p={tavily:!!sr.tavily,wikipedia:!!sr.wiki,topic:hot?'news':'general'};
   if(!p.tavily&&!p.wikipedia&&!p.fb)return null;
-  p.scores=/(\bvs\.?\b|versus|match|live|score|fixture|मैच|लाइव|बनाम|स्कोर)/i.test(t);
+  p.scores=/(\bvs\.?\b|versus|match|live|score|fixture|cricket|\bipl\b|t20|\bodi\b|मैच|लाइव|बनाम|स्कोर|क्रिकेट|आईपीएल)/i.test(t);
   p.q=t;return p;
 }
 async function webSearch(p,signal){
