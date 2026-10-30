@@ -326,6 +326,7 @@ table.grid{border-collapse:collapse;min-width:100%}
 .micb.on{background:var(--red);animation:ring 1.2s infinite}
 .previmg,.genimg{max-width:100%;border-radius:16px;display:block;align-self:center}
 .previmg{max-height:300px;object-fit:contain}
+.scard{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:12px 14px;margin:0 0 10px}.sc-h{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14px}.sc-live{color:#ff5252;font-style:normal;font-size:12px}.sc-sub{font-size:12px;opacity:.65;margin:2px 0 8px}.sc-t{display:flex;align-items:center;gap:8px;padding:6px 0}.sc-t img{width:26px;height:26px;border-radius:50%;object-fit:cover}.sc-n{opacity:.65;font-size:13px;flex:1}.sc-s{font-weight:700;font-size:17px}.sc-st{margin-top:6px;padding-top:8px;border-top:1px solid var(--line);font-size:13px;color:#ffb74d}
 .genimg{width:100%;background:var(--card);border:1px solid var(--line)}
 .thumbs{display:flex;gap:8px;overflow-x:auto}
 .thumb{width:72px;height:72px;flex:none;border:2px solid var(--line);border-radius:12px;overflow:hidden;padding:0;background:var(--card);cursor:pointer}
@@ -1655,6 +1656,10 @@ function heroHTML(){
   const reminder=(S.notif.study&&S.study.last!==dayKey())?`<button class="remind" data-go="t_study">${ic('cap',18)}<span>आज का अभ्यास अभी बाकी है</span>${ic('chev',16)}</button>`:'';
   return `<div class="hero"><div class="hero-t"><div class="hello">नमस्ते${S.name?', '+esc(S.name):''}!</div><div class="hello-s">आज मैं आपकी क्या मदद करूँ?</div></div>${reminder}</div>`;
 }
+function scoreCard(c){
+  const tm=(c.teams||[]).map(x=>`<div class="sc-t">${x.img?`<img src="${esc(x.img)}" alt="" referrerpolicy="no-referrer" onerror="this.style.display='none'">`:''}<b>${esc(x.short||x.name)}</b><span class="sc-n">${esc(x.name)}</span><span class="sc-s">${esc(x.line||'—')}</span></div>`).join('');
+  return `<div class="scard"><div class="sc-h">${c.live?'<i class="sc-live">● लाइव</i>':''}<span>${esc(c.title)}</span></div>${c.sub?`<div class="sc-sub">${esc(c.sub)}</div>`:''}${tm}<div class="sc-st">${esc(c.status)}</div></div>`;
+}
 function turnHTML(t,i,last){
   if(t.role==='user'){
     const att=(t.att||[]).map(a=>`<span class="attc">${ic(a.kind==='image'?'image':'clip',14)}${esc(a.name)}</span>`).join('');
@@ -1663,7 +1668,7 @@ function turnHTML(t,i,last){
   const v=t.v?(t.v.ok?`<div class="vbadge ok">${ic('check',14)} दोबारा जाँचा गया: कोई गलती नहीं मिली</div>`:`<div class="vbadge warn">${ic('alert',14)} <span><b>जाँच में फ़र्क मिला:</b> ${esc(t.v.note)}</span></div>`):'';
   const meta=t.by?`<span class="meta">${esc(t.by)}</span>`:'';
   const im=t.img?`<img class="genimg" src="${t.img}" alt="बनाई गई तस्वीर"><div class="row2" style="margin:8px 0 2px"><button class="btn sm" data-act="msave" data-i="${i}">${ic('download',16)} इमेज सेव करें</button></div>`:'';
-  return `<div class="m a" data-i="${i}"><div class="b">${im}<div class="md">${md(t.content)}</div>${v}</div><div class="acts">${meta}<button class="mini" data-act="mcopy" data-i="${i}" aria-label="कॉपी करें">${ic('copy',16)}</button><button class="mini" data-act="mlisten" data-i="${i}" aria-label="सुनें">${ic('volume',16)}</button>${last?`<button class="mini" data-act="mregen" aria-label="दोबारा जवाब">${ic('refresh',16)}</button>`:''}<button class="mini${t.fb==='up'?' on':''}" data-act="mfb" data-i="${i}" data-v="up" aria-label="पसंद आया">${ic('thumbup',16)}</button><button class="mini${t.fb==='down'?' on':''}" data-act="mfb" data-i="${i}" data-v="down" aria-label="पसंद नहीं आया">${ic('thumbdn',16)}</button>${t.v||t.content.length<60?'':`<button class="mini" data-act="mverify" data-i="${i}" aria-label="दोबारा जाँचें">${ic('shield',16)}</button>`}</div></div>`;
+  return `<div class="m a" data-i="${i}"><div class="b">${(t.cards||[]).map(scoreCard).join('')}${im}<div class="md">${md(t.content)}</div>${v}</div><div class="acts">${meta}<button class="mini" data-act="mcopy" data-i="${i}" aria-label="कॉपी करें">${ic('copy',16)}</button><button class="mini" data-act="mlisten" data-i="${i}" aria-label="सुनें">${ic('volume',16)}</button>${last?`<button class="mini" data-act="mregen" aria-label="दोबारा जवाब">${ic('refresh',16)}</button>`:''}<button class="mini${t.fb==='up'?' on':''}" data-act="mfb" data-i="${i}" data-v="up" aria-label="पसंद आया">${ic('thumbup',16)}</button><button class="mini${t.fb==='down'?' on':''}" data-act="mfb" data-i="${i}" data-v="down" aria-label="पसंद नहीं आया">${ic('thumbdn',16)}</button>${t.v||t.content.length<60?'':`<button class="mini" data-act="mverify" data-i="${i}" aria-label="दोबारा जाँचें">${ic('shield',16)}</button>`}</div></div>`;
 }
 function paintFeed(force){
   const home=homeEl();if(!home)return;
@@ -1754,7 +1759,7 @@ async function runAssistant({voice=false}={}){
   ctrl=new AbortController();busy=true;liveText='';setSendIcon();paintFeed(true);
   const prov=PROV[S.provider]||PROV.claude;
   const t0=performance.now();let reply='',cut=false,err=null;
-  let wpre='',wsrc='',wextra='',usedProv='';
+  let wpre='',wsrc='',wextra='',usedProv='',wcards=[];
   try{
     if(plan){
       if(!voice)liveUpdate('🔎 इंटरनेट पर खोज रहा हूँ…');
@@ -1764,6 +1769,7 @@ async function runAssistant({voice=false}={}){
         if(w.results.length){
           wextra=webContext(w.results)+(voice?'\n\n[आवाज़ मोड] यह जवाब बोलकर सुनाया जाएगा: सिर्फ़ 2-3 छोटे, सीधे वाक्य में सबसे ज़रूरी बात बताओ; सूची, बिंदु या नंबर मत लिखो।':'');
           const used=[...new Set(w.results.map(x=>SRC_NAME[x.source]||x.source))].join(' + ');
+          wcards=w.results.filter(x=>x.card&&x.card.teams&&x.card.teams.length>1).slice(0,2).map(x=>x.card);
           if(!voice){wpre='🌐 *यह जवाब इंटरनेट से लिया गया है ('+used+')।*\n\n';wsrc=webSources(w.results)}
         }else if(!voice)wpre='⚠ *इंटरनेट पर कुछ नहीं मिला ('+noteWhy(w.notes)+'), इसलिए यह मेरी पुरानी जानकारी से जवाब है — ताज़ा नहीं हो सकता।*\n\n';
       }catch(e){
@@ -1785,7 +1791,7 @@ async function runAssistant({voice=false}={}){
   }else if(reply){
     const up=PROV[usedProv]||prov;
     const label='Apna AI · '+(up&&up.custom?up.label:'Claude '+(TIER_NAME[tier]||''));
-    cur.turns.push({id:uid(),role:'assistant',content:reply+(cut?'\n\n_(जवाब लंबाई की सीमा पर कट गया — “आगे बढ़ाओ” लिखें।)_':'')+(aborted?'\n\n_(रोका गया)_':''),by:label+' · '+((performance.now()-t0)/1000).toFixed(1)+' सेकंड',ts:Date.now(),voice});
+    cur.turns.push({id:uid(),role:'assistant',content:reply+(cut?'\n\n_(जवाब लंबाई की सीमा पर कट गया — “आगे बढ़ाओ” लिखें।)_':'')+(aborted?'\n\n_(रोका गया)_':''),by:label+' · '+((performance.now()-t0)/1000).toFixed(1)+' सेकंड',ts:Date.now(),voice,cards:wcards});
   }
   cur.updated=Date.now();
   if(cur.turns.length===1||cur.title==='नई चैट'){const f=cur.turns.find(t=>t.role==='user');if(f)cur.title=f.content.replace(/\s+/g,' ').slice(0,42)||'नई चैट'}
