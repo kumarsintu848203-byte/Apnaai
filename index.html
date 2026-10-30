@@ -326,7 +326,7 @@ table.grid{border-collapse:collapse;min-width:100%}
 .micb.on{background:var(--red);animation:ring 1.2s infinite}
 .previmg,.genimg{max-width:100%;border-radius:16px;display:block;align-self:center}
 .previmg{max-height:300px;object-fit:contain}
-.scard{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:12px 14px;margin:0 0 10px}.sc-h{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14px}.sc-live{color:#ff5252;font-style:normal;font-size:12px}.sc-sub{font-size:12px;opacity:.65;margin:2px 0 8px}.sc-t{display:flex;align-items:center;gap:8px;padding:6px 0}.sc-t img{width:26px;height:26px;border-radius:50%;object-fit:cover}.sc-n{opacity:.65;font-size:13px;flex:1}.sc-s{font-weight:700;font-size:17px}.sc-st{margin-top:6px;padding-top:8px;border-top:1px solid var(--line);font-size:13px;color:#ffb74d}
+.scard{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:12px 14px;margin:0 0 10px}.sc-h{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14px}.sc-live{color:#ff5252;font-style:normal;font-size:12px}.sc-sub{font-size:12px;opacity:.65;margin:2px 0 8px}.sc-t{display:flex;align-items:center;gap:8px;padding:6px 0}.sc-t img{width:26px;height:26px;border-radius:50%;object-fit:cover}.sc-n{opacity:.65;font-size:13px;flex:1}.sc-s{font-weight:700;font-size:17px}.sc-pl{font-size:13px;margin-top:6px;opacity:.85}.sc-st{margin-top:6px;padding-top:8px;border-top:1px solid var(--line);font-size:13px;color:#ffb74d}
 .genimg{width:100%;background:var(--card);border:1px solid var(--line)}
 .thumbs{display:flex;gap:8px;overflow-x:auto}
 .thumb{width:72px;height:72px;flex:none;border:2px solid var(--line);border-radius:12px;overflow:hidden;padding:0;background:var(--card);cursor:pointer}
@@ -997,7 +997,7 @@ function needsWeb(t){
 
 /* ================= इंटरनेट खोज (Tavily + Wikipedia, Worker के ज़रिए) =================
    चाबियाँ ऐप में नहीं हैं; सब Cloudflare Worker में हैं। खोजना है या नहीं, यह सवाल देखकर अपने-आप तय होता है। */
-const SRC_NAME={tavily:'Tavily वेब-खोज',wikipedia:'Wikipedia',espn:'ESPN लाइव स्कोर',cricket:'क्रिकेट लाइव स्कोर'};
+const SRC_NAME={tavily:'Tavily वेब-खोज',wikipedia:'Wikipedia',cfsearch:'Cloudflare वेब-खोज',espn:'ESPN लाइव स्कोर',cricket:'क्रिकेट लाइव स्कोर'};
 function searchEndpoint(){
   const c=(S.customs||[]).find(x=>/\/(gemini|openai)\/v1\/?$/i.test(x.url||''));
   return c?{url:c.url.replace(/\/(gemini|openai)\/v1\/?$/i,'/search'),key:c.key||''}:null;
@@ -1658,7 +1658,7 @@ function heroHTML(){
 }
 function scoreCard(c){
   const tm=(c.teams||[]).map(x=>`<div class="sc-t">${x.img?`<img src="${esc(x.img)}" alt="" referrerpolicy="no-referrer" onerror="this.style.display='none'">`:''}<b>${esc(x.short||x.name)}</b><span class="sc-n">${esc(x.name)}</span><span class="sc-s">${esc(x.line||'—')}</span></div>`).join('');
-  return `<div class="scard"><div class="sc-h">${c.live?'<i class="sc-live">● लाइव</i>':''}<span>${esc(c.title)}</span></div>${c.sub?`<div class="sc-sub">${esc(c.sub)}</div>`:''}${tm}<div class="sc-st">${esc(c.status)}</div></div>`;
+  return `<div class="scard"><div class="sc-h">${c.live?'<i class="sc-live">● लाइव</i>':''}<span>${esc(c.title)}</span></div>${c.sub?`<div class="sc-sub">${esc(c.sub)}</div>`:''}${tm}<div class="sc-st">${esc(c.status)}</div>${(c.bat&&c.bat.length)?`<div class="sc-pl">🏏 ${c.bat.map(esc).join(' · ')}</div>`:''}${(c.bowl&&c.bowl.length)?`<div class="sc-pl">⚾ ${c.bowl.map(esc).join(' · ')}</div>`:''}</div>`;
 }
 function turnHTML(t,i,last){
   if(t.role==='user'){
