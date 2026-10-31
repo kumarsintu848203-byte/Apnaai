@@ -1571,7 +1571,7 @@ function pickFiles({accept='',multiple=false,capture=''}={}){
           b.parts[m.i]=m.d;b.got++;
           if(b.got===m.n){
             const nm=b.name,mt=b.mime,all=b.parts.join('');delete bufs[m.id];
-            jobs.push(fetch('data:'+mt+';base64,'+all).then(r=>r.blob()).then(bl=>{files.push(new File([bl],nm,{type:mt}))}).catch(()=>{}));
+            jobs.push(fetch('data:'+mt+';base64,'+all).then(r=>r.blob()).then(bl=>{files.push(new File([bl],nm,{type:mt}))}).catch(()=>{window.__pickErr=(window.__pickErr||[]).concat(nm)}));
           }
         }else if(m.t==='done'){
           Promise.all(jobs).then(()=>{window.__apnaPick=null;res(files)});
@@ -1718,7 +1718,8 @@ function paintAtts(){
 }
 async function addAtt(files){
   if(!files.length)return;
-  toast('फ़ाइल पढ़ रहा हूँ…');
+  toast('फ़ाइल पढ़ रहा हूँ…');const bad=[];
+  window.PDFPROG=(p,t)=>{if(p%10===0||p===t)toast('पेज '+p+'/'+t+' पढ़ रहा हूँ…',1800)};
   for(const f of files){
     try{
       const r=await readFileAny(f);
@@ -1730,9 +1731,10 @@ async function addAtt(files){
         if(text.length>120000){text=text.slice(0,120000);note=' (शुरुआती हिस्सा)'}
         pending.push({name:r.name+note,kind:'text',text});
       }
-    }catch(e){toast((e&&e.message&&e.code)?e.message:'“'+f.name+'” पढ़ी नहीं जा सकी')}
+    }catch(e){bad.push('“'+f.name+'”: '+((e&&e.message&&e.code)?e.message:'पढ़ी नहीं जा सकी ('+String((e&&e.message)||e).slice(0,60)+')'))}
   }
-  paintAtts();toast(pending.length?pending.length+' फ़ाइल जुड़ी':'कोई फ़ाइल नहीं जुड़ी');
+  if(window.__pickErr&&window.__pickErr.length){bad.push('ऐप तक पहुँची ही नहीं (बहुत बड़ी?): '+window.__pickErr.join(', '));window.__pickErr=null}
+  paintAtts();toast((pending.length?pending.length+' फ़ाइल जुड़ी':'कोई फ़ाइल नहीं जुड़ी')+(bad.length?'\n'+bad.join('\n'):''),bad.length?9000:2500);
 }
 function historyForModel(voice){
   let budget=voice?12000:150000;const out=[];
