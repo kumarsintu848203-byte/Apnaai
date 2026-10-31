@@ -1536,6 +1536,30 @@ async function readPdfText(file){
   }finally{try{doc.destroy()}catch(_){}if(url)try{URL.revokeObjectURL(url)}catch(_){}}
   return out.join('\n\n');
 }
+/* स्कैन की हुई PDF: हर पेज की फ़ोटो बनाकर AI से अक्षर पढ़वाओ (पहले OCR_MAX पेज, धीरे-धीरे) */
+const OCR_MAX=40;
+async function ocrPdf(file){
+  if(!(await imgCaps()))throw Object.assign(new Error('scan'),{code:'scanned_pdf',message:'यह स्कैन की हुई PDF है, और फ़ोटो पढ़ने वाला AI अभी चालू नहीं है।'});
+  const lib=await need('pdfjs');try{lib.GlobalWorkerOptions.workerSrc=PDF_WORKER}catch(e){}
+  const url=URL.createObjectURL(file);let doc;
+  try{doc=await lib.getDocument({url}).promise}catch(e){try{URL.revokeObjectURL(url)}catch(_){}doc=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise}
+  const n=Math.min(doc.numPages,OCR_MAX),out=[];let fail=0;
+  try{
+    for(let p=1;p<=n;p++){
+      if(window.PDFPROG)window.PDFPROG(p,n,'OCR');
+      try{
+        const pg=await doc.getPage(p),vp=pg.getViewport({scale:1.6}),cv=document.createElement('canvas');
+        cv.width=vp.width;cv.height=vp.height;await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+        const bl=await new Promise(r=>cv.toBlob(r,'image/jpeg',.7));cv.width=cv.height=0;
+        const b=await shrinkImage(bl,1600);
+        const t=(await ai({prompt:'इस पेज का सारा टेक्स्ट ज्यों का त्यों लिखो (हिंदी/अंग्रेज़ी जैसा है वैसा)। टेबल हो तो मार्कडाउन टेबल। कुछ गढ़ो मत; पढ़ने लायक न हो तो खाली छोड़ो।',images:[b],tier:'default',kind:'tool'})).text||'';
+        if(t.trim().length>3)out.push('--- पेज '+p+' ---\n'+t.trim());
+      }catch(e){fail++;if(fail>=3&&!out.length)throw e}
+    }
+  }finally{try{doc.destroy()}catch(_){}try{URL.revokeObjectURL(url)}catch(_){}}
+  if(!out.length)throw Object.assign(new Error('scan'),{code:'scanned_pdf',message:'स्कैन वाली PDF के अक्षर नहीं पढ़े जा सके (AI की मुफ़्त सीमा या नेट की दिक़्क़त हो सकती है)। थोड़ी देर बाद कोशिश करें।'});
+  return(doc.numPages>n?'(स्कैन PDF के सिर्फ़ पहले '+n+' पेज पढ़े गए, कुल '+doc.numPages+')\n':'')+out.join('\n\n');
+}
 async function readFileAny(file){
   const name=file.name,ext=(name.split('.').pop()||'').toLowerCase();
   if((file.type||'').startsWith('image/')||['png','jpg','jpeg','webp','gif'].includes(ext))return{kind:'image',name,blob:file};
@@ -1552,7 +1576,8 @@ async function readFileAny(file){
     return{kind:'text',name,text:xmlDec(x.replace(/<\/w:p>/g,'\n').replace(/<w:tab\/>/g,'\t').replace(/<w:br\/>/g,'\n').replace(/<[^>]+>/g,''))};
   }
   if(ext==='pdf'){
-    const text=await readPdfText(file);
+    let text=await readPdfText(file);
+    if(text.replace(/\s/g,'').length<20)text=await ocrPdf(file);
     if(text.replace(/\s/g,'').length<20)throw Object.assign(new Error('scan'),{code:'scanned_pdf',message:'यह स्कैन की हुई PDF लगती है, इसमें पढ़ने लायक टेक्स्ट नहीं मिला। पेजों की फ़ोटो भेजकर देखें।'});
     return{kind:'text',name,text};
   }
@@ -1719,7 +1744,7 @@ function paintAtts(){
 async function addAtt(files){
   if(!files.length)return;
   toast('फ़ाइल पढ़ रहा हूँ…');const bad=[];
-  window.PDFPROG=(p,t)=>{if(p%10===0||p===t)toast('पेज '+p+'/'+t+' पढ़ रहा हूँ…',1800)};
+  window.PDFPROG=(p,t,m)=>{if(m==='OCR'||p%10===0||p===t)toast((m==='OCR'?'स्कैन पढ़ रहा हूँ (धीरे चलेगा)… ':'पढ़ रहा हूँ… ')+'पेज '+p+'/'+t,2500)};
   for(const f of files){
     try{
       const r=await readFileAny(f);
@@ -3377,7 +3402,7 @@ SCREENS.t_cloud={render(node,p){
     if(!fs.length)return;let n=0;
     for(const f of fs){
       toast('“'+f.name+'” ('+fmtBytes(f.size)+') पढ़ रहा हूँ…',2500);
-      window.PDFPROG=(p,t)=>{if(p%10===0||p===t)toast('“'+f.name+'” पढ़ रहा हूँ… पेज '+p+'/'+t,1800)};
+      window.PDFPROG=(p,t,m)=>{if(m==='OCR'||p%10===0||p===t)toast('“'+f.name+'” '+(m==='OCR'?'स्कैन पढ़ रहा हूँ (धीरे चलेगा)… ':'पढ़ रहा हूँ… ')+'पेज '+p+'/'+t,2500)};
       try{
         const r=await readFileAny(f);let text=r.text||'';
         if(r.kind==='image'){
