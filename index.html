@@ -1522,9 +1522,18 @@ const xmlDec=s=>s.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"
 async function readPdfText(file){
   const lib=await need('pdfjs');
   try{lib.GlobalWorkerOptions.workerSrc=PDF_WORKER}catch(e){}
-  const doc=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
-  const out=[],n=Math.min(doc.numPages,300);
-  for(let p=1;p<=n;p++){const pg=await doc.getPage(p);const tc=await pg.getTextContent();out.push(tc.items.map(i=>i.str).join(' '))}
+  let url='',doc;
+  try{url=URL.createObjectURL(file);doc=await lib.getDocument({url,disableAutoFetch:true,disableStream:false}).promise}
+  catch(e){if(url)try{URL.revokeObjectURL(url)}catch(_){}url='';doc=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise}
+  const out=[],n=Math.min(doc.numPages,3000);
+  try{
+    for(let p=1;p<=n;p++){
+      const pg=await doc.getPage(p);const tc=await pg.getTextContent();out.push(tc.items.map(i=>i.str).join(' '));
+      try{pg.cleanup()}catch(_){}
+      if(window.PDFPROG)window.PDFPROG(p,n);
+      if(p%5===0)await new Promise(r=>setTimeout(r,0));
+    }
+  }finally{try{doc.destroy()}catch(_){}if(url)try{URL.revokeObjectURL(url)}catch(_){}}
   return out.join('\n\n');
 }
 async function readFileAny(file){
@@ -3365,7 +3374,8 @@ SCREENS.t_cloud={render(node,p){
     const fs=await pickFiles({multiple:true,accept:'.txt,.md,.csv,.tsv,.json,.html,.xml,.pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.webp'});
     if(!fs.length)return;let n=0;
     for(const f of fs){
-      toast('“'+f.name+'” पढ़ रहा हूँ…',2500);
+      toast('“'+f.name+'” ('+fmtBytes(f.size)+') पढ़ रहा हूँ…',2500);
+      window.PDFPROG=(p,t)=>{if(p%10===0||p===t)toast('“'+f.name+'” पढ़ रहा हूँ… पेज '+p+'/'+t,1800)};
       try{
         const r=await readFileAny(f);let text=r.text||'';
         if(r.kind==='image'){
